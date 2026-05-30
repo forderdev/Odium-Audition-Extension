@@ -167,6 +167,17 @@ Not: `PlayerDebugMode` değeri **string ("1")** olmalı (DWORD değil). Doğru C
 - Paket raporları `.audub/package-final-report.csv` ve `.audub/package-final-report.json` olarak yazılır.
 
 
+## v1.5.9
+
+- **GitHub uzaktan güncelleme bağlandı.** `UPDATE_MANIFEST_URL` = `https://raw.githubusercontent.com/forderdev/Odium-Audition-Extension/main/version.json`. Canlı manifest repo kökündeki `version.json`; `setupUrl` Releases'in son sürümüne sabit link (`releases/latest/download/OdiumStudioSetup.exe`).
+
+### Yeni sürüm yayınlama (her güncellemede)
+1. Kodu değiştir. Sürümü **5 yerde** artır: `CSXS/manifest.xml`, `client/index.html` (ver), `client/js/app.js` (`CURRENT_VERSION`), `installer/OdiumStudio.iss` (`AppVersion`).
+2. Inno Setup ile derle (F9) → `dist/OdiumStudioSetup.exe`.
+3. GitHub'da **yeni Release** oluştur (tag: vX.Y.Z), asset olarak `OdiumStudioSetup.exe` yükle (isim birebir).
+4. Kökteki `version.json`'da `version`'ı yeni sürüme çıkar (gerekirse `notes`), commit + push (main).
+5. Bitti — açık panellerde "⟳ Güncelle (vX.Y.Z)" çıkar; basınca son setup.exe inip kurulur. (`setupUrl` hep "latest"e baktığı için değiştirmene gerek yok.)
+
 ## v1.5.8
 
 - **EXE installer (Inno Setup).** `installer/OdiumStudio.iss` ile tek `OdiumStudioSetup.exe` üretilir (Inno Setup ile derle: F9 ya da `ISCC.exe installer\OdiumStudio.iss`). INSTALL.bat'ın yaptığı her şeyi yapar: uzantıyı `%APPDATA%\Adobe\CEP\extensions\AU-Dub-Panel` altına kurar, CEP debug modunu açar, FFmpeg indirir/kurar/PATH'e ekler. Admin gerekmez (per-user), uninstaller dahil. İnsanlara sadece bu exe gönderilir.

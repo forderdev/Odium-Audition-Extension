@@ -1,5 +1,5 @@
 {
-  "version": "1.5.8",
-  "setupUrl": "https://ORNEK-SUNUCU/indir/OdiumStudioSetup.exe",
-  "notes": "Bu dosyayi bir URL'de barindir (GitHub Releases / raw, ya da web sunucun). Panelde app.js icindeki UPDATE_MANIFEST_URL'i bu dosyanin URL'ine ayarla. Yeni surum yayinlarken: version'i artir, yeni OdiumStudioSetup.exe'yi setupUrl'e koy."
+  "version": "1.5.9",
+  "setupUrl": "https://github.com/forderdev/Odium-Audition-Extension/releases/latest/download/OdiumStudioSetup.exe",
+  "notes": "CANLI kopya repo KÖKÜNDEKİ version.json'dur. Panel onu okur: https://raw.githubusercontent.com/forderdev/Odium-Audition-Extension/main/version.json"
 }

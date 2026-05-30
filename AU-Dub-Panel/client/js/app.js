@@ -1277,8 +1277,8 @@
   //  version.json'u barındır (GitHub Releases / web sunucu) ve URL'i aşağıya yaz.
   //  version.json örneği: { "version":"1.6.0", "setupUrl":"https://.../OdiumStudioSetup.exe", "notes":"..." }
   // =====================================================================
-  var CURRENT_VERSION = "1.5.8";
-  var UPDATE_MANIFEST_URL = ""; // <-- buraya version.json'un raw URL'ini yaz (boşsa kontrol kapalı)
+  var CURRENT_VERSION = "1.5.9";
+  var UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/forderdev/Odium-Audition-Extension/main/version.json";
 
   function cmpVer(a, b) {
     a = String(a || "0").split("."); b = String(b || "0").split(".");
@@ -1363,5 +1363,5 @@
   renderPresetDetails();
   setRole(null);
   try { checkForUpdate(); } catch (e) {}
-  log("Panel yüklendi. v1.5.8 — EXE installer (Inno Setup) + uzaktan güncelleme: yeni sürümde üstte 'Güncelle' butonu çıkar.", "Hazır");
+  log("Panel yüklendi. v1.5.9 — GitHub uzaktan güncelleme bağlı (forderdev/Odium-Audition-Extension).", "Hazır");
 })();
