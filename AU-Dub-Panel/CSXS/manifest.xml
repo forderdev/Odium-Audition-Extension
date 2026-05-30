@@ -1,19 +1,19 @@
-<?xml version="1.1" encoding="UTF-8"?>
-<ExtensionManifest Version="11.1" ExtensionBundleId="com.au.dub.panel" ExtensionBundleVersion="1.1" ExtensionBundleName="AU Dub Panel" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<?xml version="1.0" encoding="UTF-8"?>
+<ExtensionManifest Version="11.0" ExtensionBundleId="com.au.dub.panel" ExtensionBundleVersion="1.2" ExtensionBundleName="AU Dub Panel" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ExtensionList>
-    <Extension Id="com.au.dub.panel" Version="1.1" />
+    <Extension Id="com.au.dub.panel" Version="1.2" />
   </ExtensionList>
 
   <ExecutionEnvironment>
     <HostList>
-      <!-- Adobe Audition host id: AUDT. Version aralığını kendi Audition sürümünüzde gerekirse daraltın. -->
-      <Host Name="AUDT" Version="[14.0,99.9]" />
+      <!-- Audition 2022, CEP manifestlerinde AUDT host sürümünü 11.0 olarak bildirir. -->
+      <Host Name="AUDT" Version="[11.0,99.9]" />
     </HostList>
     <LocaleList>
       <Locale Code="All" />
     </LocaleList>
     <RequiredRuntimeList>
-      <RequiredRuntime Name="CSXS" Version="11.1" />
+      <RequiredRuntime Name="CSXS" Version="11.0" />
     </RequiredRuntimeList>
   </ExecutionEnvironment>
 
