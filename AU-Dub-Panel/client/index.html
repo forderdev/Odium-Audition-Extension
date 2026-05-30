@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <title>Odium Studio - Audition Plugini</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="./css/styles.css" />
+  <script src="./lib/CSInterface.js"></script>
+</head>
+<body>
+  <div class="app">
+
+    <!-- ÜST BAR -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span>
+        </span>
+        <span class="brand-text">
+          <span class="brand-name">Odium&nbsp;Studio</span>
+          <span class="brand-sub">Audition Plugini</span>
+        </span>
+      </div>
+      <div class="topbar-end">
+        <button id="updateBtn" class="updateBtn hidden">⟳ Güncelle</button>
+        <span class="ver">v1.5.8</span>
+        <span id="statusPill" class="pill">Hazır</span>
+      </div>
+    </header>
+
+    <!-- ROL SEÇİMİ -->
+    <section id="roleChooser" class="rolechooser">
+      <h1 class="rc-title">Nasıl çalışacaksın?</h1>
+      <p class="rc-sub">Rolünü seç - sadece sana ait adımları görürsün.</p>
+      <div class="rc-grid">
+        <button id="roleVoiceBtn" class="rolecard">
+          <span class="rolecard-ic">🎙</span>
+          <span class="rolecard-name">Seslendirme Sanatçısı</span>
+          <span class="rolecard-desc">Orijinalleri diz · kaydını al · eşle · gönder</span>
+          <span class="rolecard-go">Başla →</span>
+        </button>
+        <button id="roleMixerBtn" class="rolecard">
+          <span class="rolecard-ic">🎚</span>
+          <span class="rolecard-name">Mixçi</span>
+          <span class="rolecard-desc">Projeyi yükle · mixini böl · export et</span>
+          <span class="rolecard-go">Başla →</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ============ SESLENDİRMEN ============ -->
+    <div id="voicePanel" class="panel hidden">
+      <div class="panel-head">
+        <span class="panel-tag">🎙 Seslendirme Sanatçısı</span>
+        <button id="voBackBtn" class="btn-ghost sm">← rol değiştir</button>
+      </div>
+
+      <ol class="stepper">
+        <li class="step">
+          <span class="step-no">1</span>
+          <div class="step-card">
+            <h3 class="step-title">Orijinal sesleri Audition'a diz</h3>
+            <p class="step-hint">Orijinal ses klasörünü seç (alt klasörler de taranır). Panel sesleri sıralayıp açık multitrack session'ın 1. track'ine dizer. <b>Audition'da boş bir Multitrack session açık olmalı.</b></p>
+            <div class="pickrow">
+              <button id="voPickOriginalsBtn" class="btn-ghost sm">📁 Seç…</button>
+              <input id="voOriginalPathInput" class="input pickinput" type="text" placeholder="Klasör yolu (seç ya da elle yapıştır)" />
+            </div>
+            <button id="voPlaceOriginalsBtn" class="btn btn-primary block">Orijinalleri Track 1'e Diz</button>
+          </div>
+        </li>
+
+        <li class="step">
+          <span class="step-no">2</span>
+          <div class="step-card">
+            <h3 class="step-title">Kaydını al ve eşle</h3>
+            <p class="step-hint">Audition'da 2. track'e her replik için kaydını yap (orijinalin altına). Sonra eşle - panel kayıtları üstlerindeki orijinallerle bağlar.</p>
+            <label class="field">
+              <span class="field-label">Eşleme yöntemi</span>
+              <select id="voAlignMode" class="select">
+                <option value="position">Pozisyona göre (üstteki orijinalle hizalı) - önerilen</option>
+                <option value="order">Sıraya göre (1. kayıt → 1. replik)</option>
+              </select>
+            </label>
+            <button id="voAlignTakesBtn" class="btn btn-primary block">Kayıtları Eşle</button>
+            <button id="voReplaceTakeBtn" class="btn-ghost block">Bir repliğin take'ini elle düzelt…</button>
+          </div>
+        </li>
+
+        <li class="step">
+          <span class="step-no">3</span>
+          <div class="step-card">
+            <h3 class="step-title">Projeyi mixçiye gönder</h3>
+            <p class="step-hint">Proje kaydedilir, paket .sesx'in klasöründe oluşturulur, .sesx ile birlikte zip'lenir ve klasör açılır. Zip'i mixçiye gönder.</p>
+            <button id="voSendToMixerBtn" class="btn btn-primary block">Paketle + .sesx ile Zip'le</button>
+          </div>
+        </li>
+      </ol>
+
+      <details class="adv secret">
+        <summary class="adv-sum">Gelişmiş (seslendirmen)</summary>
+        <div class="adv-body">
+          <p class="step-hint">Hazır take dosyaların varsa klasörle bağla, ya da diskteki take'leri topla.</p>
+          <button id="voAttachFromFolderBtn" class="btn-ghost block">Take Klasöründen Bağla…</button>
+          <button id="voAutoAttachBtn" class="btn-ghost block">Take'leri Diskten Toparla</button>
+          <button id="voHealthBtn" class="btn-ghost block">Proje Sağlık Kontrolü</button>
+        </div>
+      </details>
+    </div>
+
+    <!-- ============ MİXÇİ ============ -->
+    <div id="mixerPanel" class="panel hidden">
+      <div class="panel-head">
+        <span class="panel-tag">🎚 Mixçi</span>
+        <button id="mxBackBtn" class="btn-ghost sm">← rol değiştir</button>
+      </div>
+
+      <ol class="stepper">
+        <li class="step">
+          <span class="step-no">1</span>
+          <div class="step-card">
+            <h3 class="step-title">Projeyi yükle</h3>
+            <p class="step-hint">Seslendirmenden gelen paketteki <code>.audub/project.json</code> dosyasını seç.</p>
+            <div class="pickrow">
+              <button id="mxPickProjectBtn" class="btn-ghost sm">📄 Seç…</button>
+              <input id="mxProjectPathInput" class="input pickinput" type="text" placeholder="project.json yolu (seç ya da elle yapıştır)" />
+            </div>
+            <button id="mxLoadBtn" class="btn btn-primary block">Projeyi Yükle</button>
+
+            <details class="adv noproj">
+              <summary class="adv-sum">PROJECT.JSON'UM YOK!</summary>
+              <div class="adv-body">
+                <p class="step-hint">Sesler sana WAV olarak geldiyse: Audition'da <b>Track 1'e orijinaller</b> (isimleriyle), tam altındaki <b>Track 2'ye kayıtlar</b>. Panel track 2'yi track 1 ile eşler (isim track 1'den gelir). Bir repliğin kaydı delete-silence ile birden çok parçaya bölündüyse, o parçalar tek isim altında birleştirilir. Sonra mixdown'ı bu pozisyonlara göre böler.</p>
+                <div class="grid2">
+                  <label class="field"><span class="field-label">Orijinal track no</span>
+                    <input id="mxOrigTrack" class="input" type="number" min="1" value="1" /></label>
+                  <label class="field"><span class="field-label">Kayıt track no</span>
+                    <input id="mxRecTrack" class="input" type="number" min="1" value="2" /></label>
+                </div>
+                <label class="field"><span class="field-label">Çıktı klasörü</span></label>
+                <div class="pickrow">
+                  <button id="mxPosRootBtn" class="btn-ghost sm">📁 Seç…</button>
+                  <input id="mxPosRootInput" class="input pickinput" type="text" placeholder="çıktıların kaydedileceği klasör (seç ya da elle gir)" />
+                </div>
+                <button id="mxBuildFromPosBtn" class="btn-ghost block">📍 Audition'dan Pozisyonları Oku & Eşle</button>
+              </div>
+            </details>
+          </div>
+        </li>
+
+        <li class="step">
+          <span class="step-no">2</span>
+          <div class="step-card">
+            <h3 class="step-title">Mixini böl</h3>
+            <p class="step-hint">Audition'da mixini bitir, TEK dosyaya mixdown/bounce et (sadece dub track'i). <b>Mixdown'ı session başından (0:00) al</b> — baştaki boşluk dahil; panel her sesi gerçek timeline konumundan keser. O dosyayı seç; panel kesim haritasına göre repliklere böler.</p>
+            <div class="pickrow">
+              <button id="mxPickMixBtn" class="btn-ghost sm">🎵 Seç…</button>
+              <input id="mxMixPathInput" class="input pickinput" type="text" placeholder="mixlenmiş tek dosya yolu (seç ya da elle yapıştır)" />
+            </div>
+            <button id="mxSplitBtn" class="btn btn-primary block">Mix Dosyasını Yükle ve Böl</button>
+          </div>
+        </li>
+
+        <li class="step">
+          <span class="step-no">3</span>
+          <div class="step-card">
+            <h3 class="step-title">Orijinal isimlerle export et</h3>
+            <label class="field">
+              <span class="field-label">Export preset</span>
+              <select id="mxExportPreset" class="select"></select>
+            </label>
+            <div id="mxPresetDetails" class="chip-info">Preset seç.</div>
+            <label class="field"><span class="field-label">Çıkış klasörü</span></label>
+            <div class="pickrow">
+              <button id="mxChooseOutBtn" class="btn-ghost sm">📁 Seç…</button>
+              <input id="mxOutDirInput" class="input pickinput" type="text" placeholder="boşsa proje / Audio/Exports" />
+            </div>
+            <button id="mxExportBtn" class="btn btn-primary block">Orijinal İsimlerle Toplu Export</button>
+          </div>
+        </li>
+      </ol>
+
+      <details class="adv secret">
+        <summary class="adv-sum">Gelişmiş (mixçi)</summary>
+        <div class="adv-body">
+          <button id="mxExportPlanBtn" class="btn-ghost block">Export Plan Kaydet</button>
+          <button id="mxFfmpegScriptBtn" class="btn-ghost block">FFmpeg Export Script Oluştur</button>
+          <button id="mxVerifyExportsBtn" class="btn-ghost block">Export Sonucu Doğrula</button>
+          <button id="mxVerifySplitBtn" class="btn-ghost block">Ayrılanları Doğrula ve Take Yap</button>
+          <button id="mxHealthBtn" class="btn-ghost block">Proje Sağlık Kontrolü</button>
+        </div>
+      </details>
+    </div>
+
+    <!-- ============ REPLİK LİSTESİ ============ -->
+    <section id="lineListCard" class="card hidden">
+      <div class="card-head"><h3>Replikler</h3></div>
+      <div id="summary" class="summary">Henüz proje yok.</div>
+      <ol id="lineList" class="linelist"></ol>
+    </section>
+
+    <!-- ============ GELİŞMİŞ / TAM PANEL ============ -->
+    <details id="legacyPanel" class="adv legacy secret">
+      <summary class="adv-sum">Gelişmiş / Tam Panel - eski tüm araçlar</summary>
+      <div class="adv-body">
+
+        <div class="card">
+          <div class="card-head"><h3>1 · Proje Ayarı</h3></div>
+          <label class="field"><span class="field-label">Proje adı</span>
+            <input id="projectName" class="input" type="text" value="Game_Dub_Project" /></label>
+          <label class="field"><span class="field-label">Sesler arası boşluk / saniye</span>
+            <input id="gapSeconds" class="input" type="number" min="0" step="0.5" value="6" /></label>
+          <label class="field"><span class="field-label">Export preset</span>
+            <select id="exportPreset" class="select">
+              <optgroup label="Oyun / Lokalizasyon Teslim">
+                <option value="game_wav_48k_24_mono">Game VO - WAV 48kHz 24-bit Mono</option>
+                <option value="game_wav_48k_24_stereo">Game VO - WAV 48kHz 24-bit Stereo</option>
+                <option value="game_wav_48k_16_mono">Game VO - WAV 48kHz 16-bit Mono</option>
+                <option value="game_wav_44k_16_mono">Game VO - WAV 44.1kHz 16-bit Mono</option>
+                <option value="wwise_wav_48k_24_mono">Wwise Ready - WAV 48kHz 24-bit Mono</option>
+                <option value="fmod_wav_48k_24_mono">FMOD Ready - WAV 48kHz 24-bit Mono</option>
+                <option value="unity_wav_48k_16_mono">Unity Mobile - WAV 48kHz 16-bit Mono</option>
+              </optgroup>
+              <optgroup label="Master / Arşiv">
+                <option value="wav_48k_32float_mono">Master - WAV 48kHz 32-bit Float Mono</option>
+                <option value="wav_48k_32float_stereo">Master - WAV 48kHz 32-bit Float Stereo</option>
+                <option value="wav_96k_24_stereo">Master - WAV 96kHz 24-bit Stereo</option>
+                <option value="bwf_48k_24_mono">Broadcast WAV - 48kHz 24-bit Mono</option>
+                <option value="aiff_48k_24_mono">AIFF - 48kHz 24-bit Mono</option>
+                <option value="aiff_48k_24_stereo">AIFF - 48kHz 24-bit Stereo</option>
+                <option value="flac_48k_24_mono">FLAC - 48kHz 24-bit Mono</option>
+                <option value="flac_48k_24_stereo">FLAC - 48kHz 24-bit Stereo</option>
+              </optgroup>
+              <optgroup label="Review / Paylaşım">
+                <option value="mp3_48k_320_stereo">MP3 - 48kHz 320kbps Stereo</option>
+                <option value="mp3_48k_192_mono">MP3 - 48kHz 192kbps Mono</option>
+                <option value="mp3_44k_128_mono">MP3 - 44.1kHz 128kbps Mono</option>
+                <option value="ogg_48k_q5_mono">OGG Vorbis - 48kHz Q5 Mono</option>
+                <option value="ogg_48k_q7_stereo">OGG Vorbis - 48kHz Q7 Stereo</option>
+                <option value="aac_m4a_48k_256_stereo">AAC/M4A - 48kHz 256kbps Stereo</option>
+                <option value="aac_m4a_44k_128_mono">AAC/M4A - 44.1kHz 128kbps Mono</option>
+              </optgroup>
+            </select>
+          </label>
+          <div id="presetDetails" class="chip-info">Preset detayları henüz yüklenmedi.</div>
+          <details class="adv"><summary class="adv-sum">Export preset detayları</summary>
+            <div id="presetDetailsExpanded" class="presetbox"></div>
+          </details>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>2 · Orijinal Sesleri Seç</h3></div>
+          <p class="step-hint">Bir klasör seçin; panel ses dosyalarını sıralayıp ilk manifesti üretir.</p>
+          <input id="originalFolder" class="file" type="file" webkitdirectory multiple accept="audio/*,.wav,.mp3,.ogg,.flac,.aif,.aiff" />
+          <button id="buildProjectBtn" class="btn btn-primary block">Project JSON Oluştur</button>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>3 · Proje Kaydet / Paylaş</h3></div>
+          <button id="saveProjectBtn" class="btn-ghost block">.audub/project.json Kaydet</button>
+          <button id="packageProjectBtn" class="btn-ghost block">Paylaşım Paketi Oluştur</button>
+          <button id="verifyPackageBtn" class="btn-ghost block">Son Paketi Kontrol Et</button>
+          <button id="healthCheckBtn" class="btn-ghost block">Proje Sağlık Kontrolü</button>
+          <button id="autoAttachExistingTakesBtn" class="btn-ghost block">Take'leri Diskten Toparla</button>
+          <label class="field"><span class="field-label">Var olan project.json yükle</span>
+            <input id="projectJsonFile" class="file" type="file" accept=".json,application/json" /></label>
+          <button id="loadProjectBtn" class="btn-ghost block">project.json Yükle</button>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>4 · Audition İşlemleri</h3></div>
+          <div class="grid2">
+            <button id="probeApiBtn" class="btn-ghost">Audition API Tara</button>
+            <button id="testInsertOneBtn" class="btn-ghost">Tek Clip Test Yerleştir</button>
+            <button id="placeClipsBtn" class="btn-ghost">Timeline'a Hazırla</button>
+            <button id="markTakeBtn" class="btn-ghost">Seçili Kaydı Take Yap</button>
+            <button id="createMixMapBtn" class="btn-ghost">Mix Map Oluştur</button>
+            <button id="batchExportBtn" class="btn-ghost">Toplu Export</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>5 · Take / Export Plan</h3></div>
+          <label class="field"><span class="field-label">Take eşleştirme modu</span>
+            <select id="takeMatchMode" class="select">
+              <option value="order">Sıraya göre eşleştir</option>
+              <option value="name">Dosya adına göre eşleştir</option>
+            </select></label>
+          <label class="field"><span class="field-label">Take / miks sonrası ses klasörü</span>
+            <input id="takeFolder" class="file" type="file" webkitdirectory multiple accept="audio/*,.wav,.mp3,.ogg,.flac,.aif,.aiff,.m4a,.aac" /></label>
+          <div class="grid2">
+            <button id="attachTakesBtn" class="btn-ghost">Take Dosyalarını Bağla</button>
+            <button id="verifyTakesBtn" class="btn-ghost">Take Bağlantısını Doğrula</button>
+            <button id="makeMixMapPlanBtn" class="btn-ghost">Mix Map Taslağı Kaydet</button>
+            <button id="makeExportPlanBtn" class="btn-ghost">Export Plan Kaydet</button>
+            <button id="saveProjectAfterTakesBtn" class="btn-ghost">Project JSON Güncelle</button>
+            <button id="createFfmpegScriptBtn" class="btn-ghost">FFmpeg Export Script</button>
+            <button id="runFfmpegExportBtn" class="btn-ghost">FFmpeg Export Çalıştır</button>
+            <button id="verifyExportsBtn" class="btn-ghost">Export Sonucu Doğrula</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>6 · Mix Sonrası Ayırma</h3></div>
+          <label class="field"><span class="field-label">Birleştirilmiş / mikslenmiş tek dosya</span>
+            <input id="mixedFile" class="file" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.aif,.aiff,.m4a,.aac" /></label>
+          <div class="grid2">
+            <button id="createMixSplitScriptBtn" class="btn-ghost">Mix Ayırma Script</button>
+            <button id="runMixSplitBtn" class="btn-ghost">Mix Dosyasını Ayır</button>
+            <button id="verifyMixSplitBtn" class="btn-ghost">Ayrılanları Doğrula ve Take Yap</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>7 · Timeline Yerleşim Planı</h3></div>
+          <label class="field"><span class="field-label">Timeline kaynak modu</span>
+            <select id="timelineSourceMode" class="select">
+              <option value="original_and_take">Original + seçili take iki track</option>
+              <option value="original_only">Sadece orijinal track</option>
+              <option value="take_only">Sadece seçili take track</option>
+            </select></label>
+          <div class="grid2">
+            <button id="createTimelinePlanBtn" class="btn-ghost">Timeline Plan Kaydet</button>
+            <button id="verifyTimelinePlanBtn" class="btn-ghost">Timeline Plan Doğrula</button>
+          </div>
+        </div>
+
+      </div>
+    </details>
+
+    <!-- ============ LOG ============ -->
+    <section class="card logcard secret">
+      <div class="card-head">
+        <h3>Kayıt akışı</h3>
+        <span class="card-head-note">butona bastığında durum yukarıda görünür</span>
+      </div>
+      <pre id="log"></pre>
+    </section>
+
+  </div>
+
+  <script src="./js/projectStore.js"></script>
+  <script src="./js/auditionBridge.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>
