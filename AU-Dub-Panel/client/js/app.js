@@ -1277,8 +1277,8 @@
   //  version.json'u barındır (GitHub Releases / web sunucu) ve URL'i aşağıya yaz.
   //  version.json örneği: { "version":"1.6.0", "setupUrl":"https://.../OdiumStudioSetup.exe", "notes":"..." }
   // =====================================================================
-  var CURRENT_VERSION = "1.6.0";
-  var UPDATE_MANIFEST_URL = "https://github.com/forderdev/Odium-Audition-Extension/blob/main/AU-Dub-Panel/version.json";
+  var CURRENT_VERSION = "1.6.1";
+  var UPDATE_MANIFEST_URL = "https://api.github.com/repos/forderdev/Odium-Audition-Extension/contents/AU-Dub-Panel/version.json?ref=main";
 
   function cmpVer(a, b) {
     a = String(a || "0").split("."); b = String(b || "0").split(".");
@@ -1298,7 +1298,7 @@
       var req = nodeReq(); var fs = req("fs");
       var mod = url.indexOf("https") === 0 ? req("https") : req("http");
       var file = fs.createWriteStream(dest);
-      mod.get(url, function (res) {
+      mod.get(url, { headers: { "User-Agent": "OdiumStudio-Audition" } }, function (res) {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           file.close(); try { fs.unlinkSync(dest); } catch (e) {}
           if ((depth || 0) > 5) { cb(new Error("Çok fazla yönlendirme")); return; }
@@ -1311,25 +1311,36 @@
     } catch (e) { cb(e); }
   }
   function onUpdateManifest(m) {
+    if (m && m.content && m.encoding === "base64") {
+      try {
+        var b64 = String(m.content).replace(/\s/g, "");
+        var bin = atob(b64);
+        var txt; try { txt = decodeURIComponent(escape(bin)); } catch (eU) { txt = bin; }
+        m = JSON.parse(txt);
+      } catch (eB) { return; }
+    }
     if (!m || !m.version) return;
     if (cmpVer(m.version, CURRENT_VERSION) > 0) {
       state.update = m;
       if (els.updateBtn) { els.updateBtn.textContent = "⟳ Güncelle (v" + m.version + ")"; els.updateBtn.classList.remove("hidden"); }
       log("Yeni sürüm var: v" + m.version + " (mevcut v" + CURRENT_VERSION + "). Üstteki 'Güncelle'ye bas.", "Güncelleme var");
       if (m.notes) log("Sürüm notu: " + m.notes, "Güncelleme var");
+    } else {
+      log("Güncelleme kontrolü: en güncel surumdesin (v" + CURRENT_VERSION + ").", "Hazır");
     }
   }
   function checkForUpdate() {
-    if (!UPDATE_MANIFEST_URL) return;
+    if (!UPDATE_MANIFEST_URL) { log("Güncelleme kontrolü kapalı (UPDATE_MANIFEST_URL boş).", "Hazır"); return; }
+    log("Güncelleme kontrol ediliyor...", "Hazır");
     var url = UPDATE_MANIFEST_URL + (UPDATE_MANIFEST_URL.indexOf("?") >= 0 ? "&" : "?") + "_=" + Date.now();
     if (typeof fetch === "function") {
-      fetch(url).then(function (r) { return r.json(); }).then(onUpdateManifest).catch(function () { checkForUpdateNode(url); });
+      fetch(url, { cache: "no-store" }).then(function (r) { return r.json(); }).then(onUpdateManifest).catch(function () { checkForUpdateNode(url); });
     } else { checkForUpdateNode(url); }
   }
   function checkForUpdateNode(url) {
     try {
       var req = nodeReq(); var mod = url.indexOf("https") === 0 ? req("https") : req("http");
-      mod.get(url, function (res) {
+      mod.get(url, { headers: { "User-Agent": "OdiumStudio-Audition" } }, function (res) {
         var d = ""; res.on("data", function (c) { d += c; });
         res.on("end", function () { try { onUpdateManifest(JSON.parse(d)); } catch (e) {} });
       }).on("error", function () {});
@@ -1363,5 +1374,5 @@
   renderPresetDetails();
   setRole(null);
   try { checkForUpdate(); } catch (e) {}
-  log("Panel yüklendi. v1.6.0 — Odium Studio Audition Plugini.", "Hazır");
+  log("Panel yüklendi. v1.6.1 — Odium Studio Audition Plugini.", "Hazır");
 })();
