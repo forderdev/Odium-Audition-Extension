@@ -1277,8 +1277,8 @@
   //  version.json'u barındır (GitHub Releases / web sunucu) ve URL'i aşağıya yaz.
   //  version.json örneği: { "version":"1.6.0", "setupUrl":"https://.../OdiumStudioSetup.exe", "notes":"..." }
   // =====================================================================
-  var CURRENT_VERSION = "1.5.9";
-  var UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/forderdev/Odium-Audition-Extension/main/version.json";
+  var CURRENT_VERSION = "1.6.0";
+  var UPDATE_MANIFEST_URL = "https://github.com/forderdev/Odium-Audition-Extension/blob/main/AU-Dub-Panel/version.json";
 
   function cmpVer(a, b) {
     a = String(a || "0").split("."); b = String(b || "0").split(".");
@@ -1363,5 +1363,5 @@
   renderPresetDetails();
   setRole(null);
   try { checkForUpdate(); } catch (e) {}
-  log("Panel yüklendi. v1.5.9 — GitHub uzaktan güncelleme bağlı (forderdev/Odium-Audition-Extension).", "Hazır");
+  log("Panel yüklendi. v1.6.0 — Odium Studio Audition Plugini.", "Hazır");
 })();
