@@ -1,5 +1,5 @@
 (function () {
-  var state = { project: null, files: [], takeFiles: [], mixedFile: null, lastPackageRoot: null };
+  var state = { project: null, files: [], takeFiles: [], mixedFile: null, lastPackageRoot: null, packageInProgress: false };
 
   var els = {
     updateBtn: document.getElementById("updateBtn"),
@@ -938,54 +938,98 @@
   }
 
   // --- SESLENDİRMEN ADIM 3: Projeyi mixçiye gönder ---
-  if (els.voSendToMixerBtn) {
-    els.voSendToMixerBtn.addEventListener("click", function () {
-      if (!state.project) { log("Önce proje gerekli.", "Uyarı"); return; }
-      btnStart(els.voSendToMixerBtn);
-      // Önce Audition session'ını KAYDET (Ctrl+S) — yoksa zip'lenen .sesx eski/boş kalır.
-      setBusy("Session kaydediliyor");
-      log("Audition session kaydediliyor (Ctrl+S)...", "Hazır");
-      AuditionBridge.saveSession(function (saveRaw) {
-        var sp = null; try { sp = JSON.parse(saveRaw); } catch (e) {}
-        if (sp && sp.ok) log("Session kaydedildi.", "Hazır");
-        else log("UYARI: Session otomatik kaydedilemedi (" + (sp ? sp.message : saveRaw) + "). Audition'da elle Ctrl+S yapıp tekrar dene.", "Uyarı");
+  function parseBridgeResult(raw) {
+    try { return JSON.parse(raw); } catch (e) { return null; }
+  }
+
+  function failPackageFlow(btn, message, type) {
+    log(message, type || "Hata");
+    if (btn) btnFail(btn);
+    state.packageInProgress = false;
+  }
+
+  function saveAndPackageForMixer(btn, trigger) {
+    if (!state.project) { log("Önce proje gerekli.", "Uyarı"); return; }
+    if (state.packageInProgress) { log("Paketleme zaten devam ediyor.", "Uyarı"); return; }
+
+    state.packageInProgress = true;
+    if (btn) btnStart(btn);
+
+    setBusy("Session kaydediliyor");
+    log((trigger === "shortcut" ? "Ctrl+S alındı. " : "") + "Audition session kaydediliyor (Ctrl+S)...", "Hazır");
+
+    AuditionBridge.saveSession(function (saveRaw) {
+      var sp = parseBridgeResult(saveRaw);
+      if (!sp || !sp.ok) {
+        failPackageFlow(btn, "Session kaydedilemedi; paketleme durduruldu: " + (sp ? sp.message : saveRaw), "Hata");
+        return;
+      }
 
       setBusy("Session yolu okunuyor");
       AuditionBridge.getSessionPath(function (raw) {
-        var parsed = null; try { parsed = JSON.parse(raw); } catch (e) {}
+        var parsed = parseBridgeResult(raw);
         var sesxPath = (parsed && parsed.ok && parsed.extra && parsed.extra.path) ? parsed.extra.path : "";
-        if (sesxPath) log("Session (.sesx): " + sesxPath, "Hazır");
-        else log("Session henüz .sesx olarak kaydedilmemiş; paket proje klasöründe oluşturulacak ve .sesx eklenmeyecek. Audition'da session'ı kaydedip tekrar dene.", "Uyarı");
-        try {
-          btnProgress(els.voSendToMixerBtn, 20);
-          ProjectStore.saveProject(state.project);
-          var result = ProjectStore.packageProject(state.project, { sesxPath: sesxPath || null });
-          state.lastPackageRoot = result.packageRoot;
-          log("Paket hazır: " + result.packageRoot + " (orijinal " + result.copied + ", take " + result.copiedTakes + ")", "Hazır");
-          if (result.sesxCopied) log(".sesx pakete kopyalandı: " + result.sesxCopied, "Hazır");
-          else if (result.sesxMissing) log("UYARI: .sesx kopyalanamadı (yol bulunamadı).", "Uyarı");
-          if (result.sessionMediaCount) log("Session medyası (kayıt/merged/imported) .sesx'in yanına aynı göreli yolla kopyalandı: " + result.sessionMediaCount + " ses dosyası.", "Hazır");
-          btnProgress(els.voSendToMixerBtn, 55);
-          setBusy("Zip oluşturuluyor");
-          log("Zip oluşturuluyor...", "Hazır");
-          ProjectStore.zipFolder(result.packageRoot).then(function (zipRes) {
-            log("Zip hazır: " + zipRes.zipPath + " (" + Math.max(1, Math.round(zipRes.sizeBytes / 1048576)) + " MB)", "Hazır");
-            var opened = ProjectStore.revealFolder(zipRes.dir);
-            log(opened ? ("Klasör açıldı: " + zipRes.dir + " - zip'i mixçiye gönder.") : ("Klasör otomatik açılamadı, elle git: " + zipRes.dir), "Hazır");
-            btnDone(els.voSendToMixerBtn);
-          }).catch(function (ze) {
-            log("Zip oluşturulamadı: " + ze.message + " - paket klasörü hazır, elle zip'leyebilirsin: " + result.packageRoot, "Uyarı");
-            ProjectStore.revealFolder(result.baseDir || result.packageRoot);
-            btnFail(els.voSendToMixerBtn);
-          });
-        } catch (e) {
-          log("Paket oluşturulamadı: " + e.message, "Hata");
-          btnFail(els.voSendToMixerBtn);
+        if (!sesxPath) {
+          failPackageFlow(btn, "Session .sesx yolu bulunamadı. Audition Save As penceresinde dosyayı kaydedip tekrar dene.", "Hata");
+          return;
         }
-      });
+
+        log("Session (.sesx): " + sesxPath, "Hazır");
+        btnProgress(btn, 15);
+        setBusy(".sesx yazımı bekleniyor");
+        log(".sesx dosyasının diske tamamen yazılması bekleniyor...", "Hazır");
+
+        ProjectStore.waitForFileStable(sesxPath, { stableMs: 3000, timeoutMs: 90000, intervalMs: 250 }).then(function (stableInfo) {
+          log(".sesx yazımı tamamlandı: " + stableInfo.path + " (" + Math.max(1, Math.round(stableInfo.sizeBytes / 1024)) + " KB)", "Hazır");
+
+          try {
+            btnProgress(btn, 25);
+            ProjectStore.saveProject(state.project);
+            var result = ProjectStore.packageProject(state.project, { sesxPath: sesxPath });
+            state.lastPackageRoot = result.packageRoot;
+            log("Paket hazır: " + result.packageRoot + " (orijinal " + result.copied + ", take " + result.copiedTakes + ")", "Hazır");
+            if (result.sesxCopied) log(".sesx pakete kopyalandı: " + result.sesxCopied, "Hazır");
+            else if (result.sesxMissing) log("UYARI: .sesx kopyalanamadı (yol bulunamadı).", "Uyarı");
+            if (result.sessionMediaCount) log("Session medyası (kayıt/merged/imported) .sesx'in yanına aynı göreli yolla kopyalandı: " + result.sessionMediaCount + " ses dosyası.", "Hazır");
+
+            btnProgress(btn, 60);
+            setBusy("Zip oluşturuluyor");
+            log("Zip oluşturuluyor...", "Hazır");
+            ProjectStore.zipFolder(result.packageRoot).then(function (zipRes) {
+              log("Zip hazır: " + zipRes.zipPath + " (" + Math.max(1, Math.round(zipRes.sizeBytes / 1048576)) + " MB)", "Hazır");
+              var opened = ProjectStore.revealFolder(zipRes.dir);
+              log(opened ? ("Klasör açıldı: " + zipRes.dir + " - zip'i mixçiye gönder.") : ("Klasör otomatik açılamadı, elle git: " + zipRes.dir), "Hazır");
+              state.packageInProgress = false;
+              if (btn) btnDone(btn);
+            }).catch(function (ze) {
+              ProjectStore.revealFolder(result.baseDir || result.packageRoot);
+              failPackageFlow(btn, "Zip oluşturulamadı: " + ze.message + " - paket klasörü hazır, elle zip'leyebilirsin: " + result.packageRoot, "Uyarı");
+            });
+          } catch (e) {
+            failPackageFlow(btn, "Paket oluşturulamadı: " + e.message, "Hata");
+          }
+        }).catch(function (waitErr) {
+          failPackageFlow(btn, ".sesx yazımı tamamlanmadı; zip başlatılmadı: " + waitErr.message, "Hata");
+        });
       });
     });
   }
+
+  if (els.voSendToMixerBtn) {
+    els.voSendToMixerBtn.addEventListener("click", function () {
+      saveAndPackageForMixer(els.voSendToMixerBtn, "button");
+    });
+  }
+
+  document.addEventListener("keydown", function (e) {
+    var key = String(e.key || "").toLowerCase();
+    var isSaveShortcut = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (key === "s" || e.keyCode === 83 || e.which === 83);
+    if (!isSaveShortcut) return;
+    if (els.voicePanel && els.voicePanel.classList && els.voicePanel.classList.contains("hidden")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    saveAndPackageForMixer(els.voSendToMixerBtn, "shortcut");
+  }, true);
 
   // --- SESLENDİRMEN Gelişmiş ---
   if (els.voAutoAttachBtn) {
@@ -1277,7 +1321,7 @@
   //  version.json'u barındır (GitHub Releases / web sunucu) ve URL'i aşağıya yaz.
   //  version.json örneği: { "version":"1.6.0", "setupUrl":"https://.../OdiumStudioSetup.exe", "notes":"..." }
   // =====================================================================
-  var CURRENT_VERSION = "1.6.1";
+  var CURRENT_VERSION = "1.0";
   var UPDATE_MANIFEST_URL = "https://api.github.com/repos/forderdev/Odium-Audition-Extension/contents/AU-Dub-Panel/version.json?ref=main";
 
   function cmpVer(a, b) {
@@ -1374,5 +1418,5 @@
   renderPresetDetails();
   setRole(null);
   try { checkForUpdate(); } catch (e) {}
-  log("Panel yüklendi. v1.6.1 — Odium Studio Audition Plugini.", "Hazır");
+  log("Panel yüklendi. v1.0 — Odium Studio Audition Plugini.", "Hazır");
 })();

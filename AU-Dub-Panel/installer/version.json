@@ -1,5 +1,5 @@
 {
-  "version": "1.6.1",
+  "version": "1.0",
   "setupUrl": "https://github.com/forderdev/Odium-Audition-Extension/releases/latest/download/OdiumStudioSetup.exe",
   "notes": "CANLI kopya repo KÖKÜNDEKİ version.json'dur. Panel onu okur: https://raw.githubusercontent.com/forderdev/Odium-Audition-Extension/main/version.json"
 }

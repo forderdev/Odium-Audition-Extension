@@ -678,6 +678,15 @@ function AU_saveSession() {
     function dirtyNow() { try { return !!doc.dirty; } catch (e) { return false; } }
     var wasDirty = dirtyNow();
     var attempts = [];
+    var waitMs = 0;
+
+    function waitForClean(maxMs) {
+      var started = (new Date()).getTime();
+      while (dirtyNow() && ((new Date()).getTime() - started) < maxMs) {
+        try { $.sleep(250); } catch (eSleep) {}
+      }
+      return (new Date()).getTime() - started;
+    }
 
     // 1) Komut: Save (Ctrl+S karşılığı) — sürüme göre ad değişebilir, birkaç aday dene.
     var saveCmds = ["Save", "File.Save", "SaveSession", "Save Session", "$Save"];
@@ -685,7 +694,11 @@ function AU_saveSession() {
       try {
         var en = true;
         try { if (typeof app.isCommandEnabled === "function") en = app.isCommandEnabled(saveCmds[sc]); } catch (eEn) {}
-        if (en) { app.invokeCommand(saveCmds[sc]); attempts.push("invokeCommand(" + saveCmds[sc] + ")"); }
+        if (en) {
+          app.invokeCommand(saveCmds[sc]);
+          attempts.push("invokeCommand(" + saveCmds[sc] + ")");
+          waitMs += waitForClean(2000);
+        }
       } catch (e1) {}
     }
 
@@ -693,12 +706,25 @@ function AU_saveSession() {
     if (dirtyNow()) {
       try {
         var P = $.global.MultitrackSaveParameter;
-        if (typeof P === "function") { doc.saveDocument(new P()); attempts.push("saveDocument(param)"); }
+        if (typeof P === "function") {
+          doc.saveDocument(new P());
+          attempts.push("saveDocument(param)");
+          waitMs += waitForClean(2000);
+        }
       } catch (e2) {}
     }
     // 3) Hâlâ dirty ise: saveDocument() argümansız
     if (dirtyNow()) {
-      try { doc.saveDocument(); attempts.push("saveDocument()"); } catch (e3) {}
+      try {
+        doc.saveDocument();
+        attempts.push("saveDocument()");
+        waitMs += waitForClean(2000);
+      } catch (e3) {}
+    }
+
+    waitMs += waitForClean(30000);
+    if (!dirtyNow()) {
+      try { $.sleep(750); waitMs += 750; } catch (eAfter) {}
     }
 
     var stillDirty = dirtyNow();
@@ -708,7 +734,7 @@ function AU_saveSession() {
     if (p === "undefined" || p === "null") p = "";
 
     var extra = "{\"path\":\"" + AU_escapeJsonString(p) + "\",\"saved\":" + (saved ? "true" : "false") +
-                ",\"wasDirty\":" + (wasDirty ? "true" : "false") + ",\"attempts\":\"" + AU_escapeJsonString(attempts.join(", ")) + "\"}";
+                ",\"wasDirty\":" + (wasDirty ? "true" : "false") + ",\"waitMs\":" + waitMs + ",\"attempts\":\"" + AU_escapeJsonString(attempts.join(", ")) + "\"}";
     var msg = saved ? ("Session kaydedildi (" + (attempts.join(", ") || "zaten kayıtlı") + ").")
                     : "Session kaydedilemedi; hâlâ kaydedilmemiş görünüyor. Audition'da elle Ctrl+S yapıp tekrar dene.";
     return AU_result(saved, msg, extra);

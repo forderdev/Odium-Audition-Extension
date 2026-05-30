@@ -1360,6 +1360,73 @@
     });
   }
 
+  // Yeni kaydedilen session dosyası değişmeyi bırakmadan kopyalama/zip adımına geçme.
+  function waitForFileStable(filePath, options) {
+    options = options || {};
+    return new Promise(function (resolve, reject) {
+      var modules = getNodeModules();
+      if (!modules) { reject(new Error("Node.js erişimi yok.")); return; }
+
+      var target = filePath && String(filePath).trim();
+      if (!target) { reject(new Error("Beklenecek dosya yolu boş.")); return; }
+
+      var intervalMs = Math.max(100, Number(options.intervalMs || 250));
+      var stableMs = Math.max(intervalMs, Number(options.stableMs || 2500));
+      var timeoutMs = Math.max(stableMs + intervalMs, Number(options.timeoutMs || 60000));
+      var startedAt = Date.now();
+      var lastSignature = null;
+      var lastChangedAt = 0;
+      var polls = 0;
+
+      function statSignature(st) {
+        var mtime = typeof st.mtimeMs === "number" ? st.mtimeMs : (st.mtime ? st.mtime.getTime() : 0);
+        return String(st.size) + ":" + String(mtime);
+      }
+
+      function poll() {
+        polls++;
+        var now = Date.now();
+        var st = null;
+        try {
+          st = modules.fs.statSync(target);
+          if (st && typeof st.isFile === "function" && !st.isFile()) throw new Error("Yol dosya değil.");
+        } catch (eStat) {
+          if (now - startedAt >= timeoutMs) {
+            reject(new Error("Dosya hazır olmadı: " + eStat.message));
+          } else {
+            setTimeout(poll, intervalMs);
+          }
+          return;
+        }
+
+        var sig = statSignature(st);
+        if (sig !== lastSignature) {
+          lastSignature = sig;
+          lastChangedAt = now;
+        }
+
+        if (st.size > 0 && now - lastChangedAt >= stableMs) {
+          resolve({
+            path: normalizeSlashes(target),
+            sizeBytes: st.size,
+            mtimeMs: typeof st.mtimeMs === "number" ? st.mtimeMs : (st.mtime ? st.mtime.getTime() : 0),
+            stableMs: now - lastChangedAt,
+            polls: polls
+          });
+          return;
+        }
+
+        if (now - startedAt >= timeoutMs) {
+          reject(new Error("Dosya yazımı stabil hale gelmedi: " + normalizeSlashes(target)));
+          return;
+        }
+        setTimeout(poll, intervalMs);
+      }
+
+      poll();
+    });
+  }
+
   // Modern (Explorer tarzı) klasör seçici. Windows'un eski "Klasöre Gözat" yerine,
   // WinForms OpenFileDialog'u klasör seçer moda alıp PowerShell ile gösterir; seçilen
   // dosyanın klasörünü döndürür. (cep.fs klasör dialog'u eski stilde olduğu için.)
@@ -3618,6 +3685,7 @@
     loadProjectFromPath: loadProjectFromPath,
     packageProject: packageProject,
     zipFolder: zipFolder,
+    waitForFileStable: waitForFileStable,
     revealFolder: revealFolder,
     pickFolderDialog: pickFolderDialog,
     pickFileDialog: pickFileDialog,
