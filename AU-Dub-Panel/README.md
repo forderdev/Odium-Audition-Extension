@@ -294,7 +294,7 @@ Not: `PlayerDebugMode` değeri **string ("1")** olmalı (DWORD değil). Doğru C
 
 ## v1.1.2
 
-- v1.1.0/1.1.1 yerleştirmede clip'ler üst üste çıktı: `clip.startTime = X` ataması hata vermeden değeri kabul ediyor (read-back doğru) ama clip taşınmıyor olabilir - `startTime` salt-okunur bir host property'siyse ExtendScript atamayı sessizce gölgeliyor. Audition'da clip muhtemelen **playhead konumuna** ekleniyor.
+- v1.1.1/1.1.1 yerleştirmede clip'ler üst üste çıktı: `clip.startTime = X` ataması hata vermeden değeri kabul ediyor (read-back doğru) ama clip taşınmıyor olabilir - `startTime` salt-okunur bir host property'siyse ExtendScript atamayı sessizce gölgeliyor. Audition'da clip muhtemelen **playhead konumuna** ekleniyor.
 - `AU_placeClips` teşhis eklendi: multitrack belgesinin tüm property/metod yüzeyini (playhead/pozisyon property'sini bulmak için) ve her clip'te istenen vs. okunan `startTime` değerini loglar; pozisyonu tutmayan clip sayısını raporlar. Bir sonraki sürümde doğru konumlandırma (playhead set veya Time nesnesi) buna göre yazılacak.
 
 ## v1.1.1
@@ -302,7 +302,7 @@ Not: `PlayerDebugMode` değeri **string ("1")** olmalı (DWORD değil). Doğru C
 - `audioTracks.add()` argümansız çağrıldığında başarısız oluyordu (imza `add(layout, trackType)` argüman ister). Körlemesine argüman deneyip çökme riskine girmek yerine `AU_pickTrack`: önce isimle (ORIGINAL_REF/DUB_TAKE) arar, yoksa kullanıcının **boş bir track'ini** yeniden adlandırır, o da yoksa dolu track'i, son çare olarak `add()` dener. Mevcut oturumda anında çalışır, çökmez.
 - Atlanan clip'lerin nedeni (kaynak dosya diskte yok) artık panelde uyarı olarak loglanıyor; tüm take'ler atlanırsa DUB_TAKE track'inin neden oluşmadığı netleşir.
 
-## v1.1.0
+## v1.1.1
 
 - **"Timeline'a Hazırla" artık gerçek çalışıyor (stub değil).** Tek clip testi tüm scripting zincirini doğruladı; bu sürüm onu tam yerleştirmeye çevirdi:
   - Açma: `new DocumentOpenParameter(path)` → `app.openDocument(param)` → WaveDocument.
@@ -311,51 +311,51 @@ Not: `PlayerDebugMode` değeri **string ("1")** olmalı (DWORD değil). Doğru C
 - Yerleşim mantığı tek kaynaktan: `projectStore.buildPlanClips` artık hem timeline planını hem canlı yerleştirme payload'ını besliyor - slot düzeni ve take tam-süre koruması birebir aynı. `buildPlacementPayload` yalnızca kaynağı diskte bulunan clip'leri host'a gönderir.
 - Host (`AU_placeClips`) `ORIGINAL_REF` ve `DUB_TAKE` track'lerini isimle bulur/oluşturur (kullanıcının mevcut track'lerini ezmez), clip'leri yerleştirir, take'leri orijinal süreye **kırpmaz** ve sonunda kullanıcıyı multitrack görünümüne geri döndürür (`app.activeDocument = mtDoc`).
 
-## v1.0.10
+## v1.1.10
 
 - İmza döküldü: `openParameter:DocumentOpenParameter` - string/File değil, bir **`DocumentOpenParameter`** nesnesi ister. Ayrıca app yüzeyi çoğunlukla `invokeCommand(command:string)` üzerinden çalışıyor (komut-tabanlı).
 - `AU_testInsertOne` artık `$.global.DocumentOpenParameter` constructor'ını/prototip property'lerini döküyor ve 3 kurulum varyantı deniyor: `new DocumentOpenParameter(fsName)`, `(File)`, boş ctor + path/fileName/fullName/filePath property set. Kurulan nesneyle `app.openDocument(openParam)` çağrılıp WaveDocument dönüşü doğrulanıyor.
 
-## v1.0.9
+## v1.1.9
 
-- `app.openDocument` hem String hem File argümanını "Illegal Parameter type" ile reddetti (File.exists=true olmasına rağmen). Doğru argüman tipi bilinmiyordu; v1.0.4/1.0.5 probe'u app metodlarını yalnızca isim olarak dökmüştü, imza olarak değil.
+- `app.openDocument` hem String hem File argümanını "Illegal Parameter type" ile reddetti (File.exists=true olmasına rağmen). Doğru argüman tipi bilinmiyordu; v1.1.4/1.1.5 probe'u app metodlarını yalnızca isim olarak dökmüştü, imza olarak değil.
 - `AU_testInsertOne` artık `AU_reflectMethodsDetailed(app)` ile **app metod imzalarını** (argüman tipleriyle) döküyor ve açmanın 4 varyantını sırayla deniyor: `openDocument(File)`, `openDocument(fsName)`, `openDocument(fullName)`, `openDocumentFromPath(fsName)`. Hangisi WaveDocument döndürürse doğru yol odur.
 
-## v1.0.8
+## v1.1.8
 
-- Probe sonucu: `app.openDocument(String)` "Illegal Parameter type" atıyor - **File nesnesi** istiyor. v1.0.7'de string verilince WAV açılmıyor, fallback yanlışlıkla multitrack belgesini alıyor, dolayısıyla `audioClips.add(multitrackDoc)` clip döndürmüyordu.
+- Probe sonucu: `app.openDocument(String)` "Illegal Parameter type" atıyor - **File nesnesi** istiyor. v1.1.7'de string verilince WAV açılmıyor, fallback yanlışlıkla multitrack belgesini alıyor, dolayısıyla `audioClips.add(multitrackDoc)` clip döndürmüyordu.
 - `AU_testInsertOne` artık `new File(filePath)` ile açıyor; açma başarısızsa yalnızca aktif belge gerçekten değiştiyse (yeni WaveDocument) onu alıyor, multitrack'i kaynak sanmıyor. `audioClips.add` imzası doğrulandı: `add(AudioClip:any, sourceChannelRouting:any)`.
 
-## v1.0.7
+## v1.1.7
 
 - Tek clip testi çökme-dayanıklı hale getirildi. `AU_testInsertOne` artık her adımı (ADIM 1..10) anında `.audub/test-insert-log.txt` dosyasına yazıp kapatır (close = flush). Audition çökerse evalScript callback'i hiç dönmez ve panele log düşmez; bu dosyadaki **son satır** tam olarak hangi adımın (örn. `app.openDocument` veya `audioClips.add`) çökmeye yol açtığını gösterir.
 - `host.jsx`: `AU_writeFileFlush(logPath, fullText)` eklendi; `AU_testInsertOne` adımları numaralandırıldı ve `payload.logPath` desteklendi. `app.js`: `logPath = projectRootPath + "/.audub/test-insert-log.txt"` gönderir.
 
-## v1.0.6
+## v1.1.6
 
-- "Tek Clip Test Yerleştir" butonu eklendi (4. bölüm). v1.0.5 probe'u multitrack/clip API'sinin var olduğunu doğruladı; tek bilinmeyen eklenen `AudioClip`'in pozisyon (start) property adı ve birimiydi (saniye mi sample mı). Bu buton, aktif Multitrack session'a ilk repliğin orijinal dosyasını gerçekten ekler, dönen clip'i reflect eder ve `startTime/start/position/startPosition/timelineStartTime` adaylarını 5 sn'ye set edip "sonra" değerini okuyarak gerçek property'yi ve birimini kesinleştirir.
+- "Tek Clip Test Yerleştir" butonu eklendi (4. bölüm). v1.1.5 probe'u multitrack/clip API'sinin var olduğunu doğruladı; tek bilinmeyen eklenen `AudioClip`'in pozisyon (start) property adı ve birimiydi (saniye mi sample mı). Bu buton, aktif Multitrack session'a ilk repliğin orijinal dosyasını gerçekten ekler, dönen clip'i reflect eder ve `startTime/start/position/startPosition/timelineStartTime` adaylarını 5 sn'ye set edip "sonra" değerini okuyarak gerçek property'yi ve birimini kesinleştirir.
 - `host.jsx`: `AU_testInsertOne(payloadJson)` + `AU_findClipPositionProp(clip)` eklendi. `auditionBridge.js`: `testInsertOne` metodu. `app.js`: handler ilk repliğin `originalAbsolutePath` (yoksa `projectRootPath + originalRelativePath`) yolunu gönderir.
 - Sonraki adım: bu testten çıkan pozisyon property'siyle gerçek 2-track (ORIGINAL_REF + DUB_TAKE) yerleştirmesi `timeline-plan.json`'a göre kodlanacak; uzun take'ler tam süresiyle korunacak.
 
-## v1.0.4
+## v1.1.4
 
 - Canlı Audition scripting yolu araştırması başladı. `host.jsx`'e `AU_probeApi()` eklendi: `app`, `app.activeDocument`, `tracks`, `track[0]` ve ilgili global yapıcıların (MultitrackDocument, Track, AudioClip vb.) bu Audition sürümünde gerçekten var olup olmadığını reflect ile listeler.
 - Panele "Audition API Tara" butonu eklendi (4. bölüm). Çıktı log'a yazılır. Amaç: körlemesine kod yazmadan, multitrack/clip yerleştirme API'sinin 25.6'da olup olmadığını ölçmek. Varsa gerçek "Timeline'a Hazırla" buna göre kodlanacak; yoksa `.sesx` üretimine geçilecek.
 
-## v1.0.3
+## v1.1.3
 
 - Timeline yerleşimi (clip `start` değerleri) artık `line.timelineStart` (orijinal süreye göre hesaplanmış) yerine **sıralı slot** mantığıyla üretiliyor. Her replik için slot genişliği = o repliğin kaynakları arasındaki en uzun süre (orijinal vs seçili take), sonraki replik bu slot + boşluk kadar sonra başlıyor.
 - Bu, projenin temel iş kuralını çözüyor: uzun take'ler (örn. orijinal 3 sn iken kayıt 13 sn) tam süresiyle yerleşiyor ve DUB_TAKE track'inde sonraki repliğin üstüne taşıp **çakışmaya** yol açmıyor. ORIGINAL_REF ve DUB_TAKE clip'leri aynı replikte hizalı kalıyor.
 - Önceki test çıktısındaki `çakışma 3` (DUB_TAKE / line_0001→line_0002, line_0012→line_0013, line_0013→line_0014) bu sürümde `çakışma 0` oluyor.
 
-## v1.0.2
+## v1.1.2
 
 - Timeline plan doğrulama bug'ı kök nedeninden düzeltildi. Doğrulama artık sağlık kontrolüyle aynı `resolveExistingPath` mantığını kullanıyor (önce absolute, bulamazsa `projectRootPath + relativePath`). Önceki sürümlerde doğrulama yalnızca `sourceAbsolutePath` üzerinde `existsSync` yapıyordu; absolute yol stale/taşınmışsa sağlık kontrolü take'i buluyor ama timeline doğrulama bulamıyordu (örn. `98500340__mixsplit.wav` için "geçerli 15 / eksik kaynak 15").
 - Doğrulama raporuna (`timeline-plan-verify-report.csv/json`) `resolvedPath` kolonu eklendi.
 - `timeline-preview.html` somutlaştırıldı: renk legend'ı, track içi boşlukların (gap) görsel blokları, çakışma (overlap) işaretleme, eksik kaynak vurgusu ve özet kartında "Eksik kaynak" sayacı.
 - Beklenen sonuç: `beklenen 30 / geçerli 30 / eksik kaynak 0 / çakışma 0`.
 
-## v1.0.1
+## v1.1.1
 
 - Timeline Yerleşim Planı bölümü eklendi.
 - `.audub/timeline-plan.json` ve `.audub/timeline-plan.csv` üretilir.

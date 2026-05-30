@@ -599,6 +599,27 @@
     return String(value || "").replace(/\\/g, "/");
   }
 
+  function fileNameForSort(value) {
+    if (!value) return "";
+    if (typeof value === "string") {
+      var normalized = normalizeSlashes(value);
+      var slash = normalized.lastIndexOf("/");
+      return slash >= 0 ? normalized.slice(slash + 1) : normalized;
+    }
+    if (value.name) return String(value.name);
+    if (value.path) return fileNameForSort(value.path);
+    return String(value);
+  }
+
+  function compareByFileName(a, b) {
+    var byName = naturalCompare(fileNameForSort(a), fileNameForSort(b));
+    if (byName) return byName;
+    return naturalCompare(
+      typeof a === "string" ? a : (a && a.path ? a.path : fileNameForSort(a)),
+      typeof b === "string" ? b : (b && b.path ? b.path : fileNameForSort(b))
+    );
+  }
+
   function getProjectRootPath(files) {
     if (!files || !files.length) return null;
     var first = files[0];
@@ -678,7 +699,7 @@
 
   async function buildProjectFromFiles(filesInput, options, onProgress) {
     var files = Array.prototype.slice.call(filesInput || []).filter(isAudioFile);
-    files.sort(function (a, b) { return naturalCompare(getRelativePath(a), getRelativePath(b)); });
+    files.sort(compareByFileName);
 
     var gapSeconds = Number(options.gapSeconds || 6);
     var cursor = 0;
@@ -713,7 +734,7 @@
     return {
       schemaVersion: 2,
       app: "AU Dub Panel",
-      appVersion: "1.0.5",
+      appVersion: "1.1.5",
       projectId: uid("project"),
       projectName: options.projectName || "Game_Dub_Project",
       createdAt: new Date().toISOString(),
@@ -808,7 +829,7 @@
     return {
       schemaVersion: 2,
       app: "AU Dub Panel",
-      appVersion: "1.0.5",
+      appVersion: "1.1.5",
       projectId: uid("project"),
       projectName: options.projectName || "Game_Dub_Project",
       createdAt: new Date().toISOString(),
@@ -839,7 +860,7 @@
     var projectRoot = modules.path.dirname(rootDir);
 
     var found = walkAudioFiles(rootDir, modules, []);
-    found.sort(function (a, b) { return naturalCompare(a.path, b.path); });
+    found.sort(compareByFileName);
     if (!found.length) throw new Error("Seçilen klasörde ses dosyası bulunamadı: " + rootDir);
 
     var gapSeconds = Number(options.gapSeconds || 6);
@@ -880,7 +901,7 @@
     if (!modules) throw new Error("Node.js erişimi yok (CEP --enable-nodejs).");
     var list = (paths || []).filter(function (p) { return AUDIO_EXTENSIONS.indexOf(fileExtension(p)) >= 0; });
     if (!list.length) throw new Error("Ses dosyası seçilmedi.");
-    list = list.slice().sort(function (a, b) { return naturalCompare(a, b); });
+    list = list.slice().sort(compareByFileName);
 
     var projectRoot = normalizeSlashes(modules.path.dirname(list[0]));
     var gapSeconds = Number(options.gapSeconds || 6);
@@ -1160,7 +1181,7 @@
     ensureProjectFolders(packageRoot, modules);
 
     var packaged = clone(project);
-    packaged.appVersion = "1.0.0";
+    packaged.appVersion = "1.1.0";
     packaged.packageCreatedAt = new Date().toISOString();
     packaged.packageRootPath = packageRoot;
     packaged.projectRootPath = packageRoot;
@@ -1702,7 +1723,7 @@
     modules.fs.writeFileSync(jsonPath, JSON.stringify({
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.0.5",
+      appVersion: "1.1.5",
       projectId: project.projectId,
       projectName: project.projectName,
       createdAt: new Date().toISOString(),
@@ -1900,7 +1921,7 @@
     var plan = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.0.5",
+      appVersion: "1.1.5",
       projectId: project.projectId,
       projectName: project.projectName,
       createdAt: new Date().toISOString(),
@@ -1971,7 +1992,7 @@
       mixMapId: uid("mixmap"),
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.0.5",
+      appVersion: "1.1.5",
       projectId: project.projectId,
       projectName: project.projectName,
       createdAt: new Date().toISOString(),
@@ -2252,7 +2273,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.0.5",
+      appVersion: "1.1.5",
       projectId: project.projectId,
       projectName: project.projectName,
       checkedAt: new Date().toISOString(),
@@ -2382,7 +2403,7 @@
     var plan = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.0.5",
+      appVersion: "1.1.5",
       projectId: project.projectId,
       projectName: project.projectName,
       createdAt: new Date().toISOString(),
@@ -2619,7 +2640,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.0.5",
+      appVersion: "1.1.5",
       projectId: project.projectId,
       projectName: project.projectName,
       checkedAt: new Date().toISOString(),
@@ -2788,7 +2809,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.0.5",
+      appVersion: "1.1.5",
       projectId: project.projectId,
       projectName: project.projectName,
       checkedAt: new Date().toISOString(),
@@ -2806,7 +2827,7 @@
     modules.fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2), "utf8");
     project.lastAutoAttachTakes = { csvPath: normalizeSlashes(csvPath), jsonPath: normalizeSlashes(jsonPath), attached: attached, found: found, missing: missing, checkedAt: report.checkedAt };
     project.updatedAt = new Date().toISOString();
-    project.appVersion = "1.0.0";
+    project.appVersion = "1.1.0";
     saveProject(project);
     return { found: found, attached: attached, missing: missing, missingNames: missingNames, csvPath: normalizeSlashes(csvPath), jsonPath: normalizeSlashes(jsonPath) };
   }
@@ -2894,7 +2915,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.0.5",
+      appVersion: "1.1.5",
       projectId: project.projectId,
       projectName: project.projectName,
       checkedAt: new Date().toISOString(),
@@ -3009,7 +3030,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.0.5",
+      appVersion: "1.1.5",
       checkedAt: new Date().toISOString(),
       packageRoot: normalizeSlashes(packageRoot),
       projectJsonExists: true,
@@ -3518,7 +3539,7 @@
     var plan = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.0.5",
+      appVersion: "1.1.5",
       createdAt: new Date().toISOString(),
       projectId: project.projectId,
       projectName: project.projectName,
@@ -3633,7 +3654,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.0.5",
+      appVersion: "1.1.5",
       checkedAt: new Date().toISOString(),
       projectRootPath: normalizeSlashes(project.projectRootPath),
       planPath: normalizeSlashes(planPath),

@@ -69,7 +69,7 @@ b{ color:var(--txt); font-weight:600; }
 .brand-mark .bar:nth-child(3){ height:14px; animation-delay:.36s; }
 .brand-mark .bar:nth-child(4){ height:19px; animation-delay:.54s; }
 @keyframes eq{ 0%,100%{ transform:scaleY(.55); } 50%{ transform:scaleY(1); } }
-.brand-text{ display:flex; flex-direction:column; line-height:1.05; }
+.brand-text{ display:flex; flex-direction:column; line-height:1.15; }
 .brand-name{ font-weight:800; letter-spacing:.16em; font-size:15px; }
 .brand-sub{ font-size:10.5px; letter-spacing:.22em; text-transform:uppercase; color:var(--txt-faint); }
 .topbar-end{ display:flex; align-items:center; gap:9px; }
@@ -80,7 +80,7 @@ b{ color:var(--txt); font-weight:600; }
   background:linear-gradient(180deg,var(--gold-hi),var(--gold)); border:1px solid var(--gold);
   box-shadow:0 0 0 0 var(--gold-weak); animation:upPulse 1.8s ease-in-out infinite;
 }
-.updateBtn:hover{ filter:brightness(1.07); }
+.updateBtn:hover{ filter:brightness(1.17); }
 @keyframes upPulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(203,164,92,.45);} 50%{ box-shadow:0 0 0 6px rgba(203,164,92,0);} }
 .pill{
   font-size:12px; color:var(--txt-dim); white-space:nowrap; max-width:230px; overflow:hidden; text-overflow:ellipsis;
@@ -169,7 +169,7 @@ select.select{ appearance:none;
   color:var(--gold-ink); border:1px solid var(--gold); font-weight:750; letter-spacing:.01em;
   box-shadow:0 6px 18px -8px rgba(203,164,92,.6);
 }
-.btn-primary:hover{ filter:brightness(1.06); border-color:var(--gold-hi); }
+.btn-primary:hover{ filter:brightness(1.16); border-color:var(--gold-hi); }
 .btn-ghost{ background:transparent; border:1px solid var(--line-2); color:var(--txt-dim); font-weight:500; }
 .btn-ghost:hover{ border-color:var(--gold); color:var(--txt); }
 .block{ display:block; width:100%; margin-top:9px; }
@@ -188,7 +188,7 @@ button.btnFail{ background:var(--err-bg) !important; border-color:var(--err-bd) 
 .btnProgressFill{ height:100%; width:0; border-radius:999px;
   background:linear-gradient(90deg,var(--gold),var(--gold-hi)); transition:width .25s ease; }
 .btnProgressFill.indet{ width:34%; background:linear-gradient(90deg,transparent,var(--gold),transparent);
-  animation:indet 1.05s linear infinite; }
+  animation:indet 1.15s linear infinite; }
 @keyframes indet{ 0%{ margin-left:-38%; } 100%{ margin-left:104%; } }
 .btnProgress.fail .btnProgressFill{ background:var(--err); animation:none; }
 
