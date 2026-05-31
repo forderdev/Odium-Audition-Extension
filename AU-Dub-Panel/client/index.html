@@ -8,7 +8,29 @@
   <script src="./lib/CSInterface.js"></script>
 </head>
 <body>
-  <div class="app">
+  <section id="loginGate" class="loginGate" aria-label="Giriş">
+    <form id="loginForm" class="loginCard" autocomplete="off">
+      <div class="loginBrand">
+        <span class="brand-mark" aria-hidden="true">
+          <span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span>
+        </span>
+        <span>Odium Studio</span>
+      </div>
+      <h1 class="loginTitle">Yetkili giriş</h1>
+      <label class="field">
+        <span class="field-label">Kullanıcı adı</span>
+        <input id="loginUser" class="input" type="text" spellcheck="false" autocomplete="off" />
+      </label>
+      <label class="field">
+        <span class="field-label">Şifre</span>
+        <input id="loginPass" class="input" type="password" autocomplete="off" />
+      </label>
+      <button id="loginSubmit" class="btn btn-primary block" type="submit">Giriş</button>
+      <div id="loginError" class="loginError" role="alert" aria-live="polite"></div>
+    </form>
+  </section>
+
+  <div id="mainApp" class="app">
 
     <!-- ÜST BAR -->
     <header class="topbar">
@@ -23,7 +45,7 @@
       </div>
       <div class="topbar-end">
         <button id="updateBtn" class="updateBtn hidden">⟳ Güncelle</button>
-        <span class="ver">v1.2</span>
+        <span class="ver">v1.3</span>
         <span id="statusPill" class="pill">Hazır</span>
       </div>
     </header>
@@ -341,5 +363,6 @@
   <script src="./js/projectStore.js"></script>
   <script src="./js/auditionBridge.js"></script>
   <script src="./js/app.js"></script>
+  <script src="./js/authGate.js"></script>
 </body>
 </html>

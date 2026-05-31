@@ -1,4 +1,6 @@
 (function (global) {
+  (global.__odiumAuthShards = global.__odiumAuthShards || []).push({ order: 20, shift: 4, u: [109], p: [105, 112, 107] });
+
   var hostLoadState = "unknown"; // unknown | ready | failed
 
   function getCSInterface() {
