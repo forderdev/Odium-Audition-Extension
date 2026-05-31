@@ -736,7 +736,7 @@
     return {
       schemaVersion: 2,
       app: "AU Dub Panel",
-      appVersion: "1.3.5",
+      appVersion: "1.4.5",
       projectId: uid("project"),
       projectName: options.projectName || "Game_Dub_Project",
       createdAt: new Date().toISOString(),
@@ -831,7 +831,7 @@
     return {
       schemaVersion: 2,
       app: "AU Dub Panel",
-      appVersion: "1.3.5",
+      appVersion: "1.4.5",
       projectId: uid("project"),
       projectName: options.projectName || "Game_Dub_Project",
       createdAt: new Date().toISOString(),
@@ -1183,7 +1183,7 @@
     ensureProjectFolders(packageRoot, modules);
 
     var packaged = clone(project);
-    packaged.appVersion = "1.3.0";
+    packaged.appVersion = "1.4.0";
     packaged.packageCreatedAt = new Date().toISOString();
     packaged.packageRootPath = packageRoot;
     packaged.projectRootPath = packageRoot;
@@ -1725,7 +1725,7 @@
     modules.fs.writeFileSync(jsonPath, JSON.stringify({
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.3.5",
+      appVersion: "1.4.5",
       projectId: project.projectId,
       projectName: project.projectName,
       createdAt: new Date().toISOString(),
@@ -1923,7 +1923,7 @@
     var plan = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.3.5",
+      appVersion: "1.4.5",
       projectId: project.projectId,
       projectName: project.projectName,
       createdAt: new Date().toISOString(),
@@ -1994,7 +1994,7 @@
       mixMapId: uid("mixmap"),
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.3.5",
+      appVersion: "1.4.5",
       projectId: project.projectId,
       projectName: project.projectName,
       createdAt: new Date().toISOString(),
@@ -2275,7 +2275,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.3.5",
+      appVersion: "1.4.5",
       projectId: project.projectId,
       projectName: project.projectName,
       checkedAt: new Date().toISOString(),
@@ -2405,7 +2405,7 @@
     var plan = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.3.5",
+      appVersion: "1.4.5",
       projectId: project.projectId,
       projectName: project.projectName,
       createdAt: new Date().toISOString(),
@@ -2642,7 +2642,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.3.5",
+      appVersion: "1.4.5",
       projectId: project.projectId,
       projectName: project.projectName,
       checkedAt: new Date().toISOString(),
@@ -2811,7 +2811,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.3.5",
+      appVersion: "1.4.5",
       projectId: project.projectId,
       projectName: project.projectName,
       checkedAt: new Date().toISOString(),
@@ -2829,7 +2829,7 @@
     modules.fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2), "utf8");
     project.lastAutoAttachTakes = { csvPath: normalizeSlashes(csvPath), jsonPath: normalizeSlashes(jsonPath), attached: attached, found: found, missing: missing, checkedAt: report.checkedAt };
     project.updatedAt = new Date().toISOString();
-    project.appVersion = "1.3.0";
+    project.appVersion = "1.4.0";
     saveProject(project);
     return { found: found, attached: attached, missing: missing, missingNames: missingNames, csvPath: normalizeSlashes(csvPath), jsonPath: normalizeSlashes(jsonPath) };
   }
@@ -2917,7 +2917,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.3.5",
+      appVersion: "1.4.5",
       projectId: project.projectId,
       projectName: project.projectName,
       checkedAt: new Date().toISOString(),
@@ -3032,7 +3032,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.3.5",
+      appVersion: "1.4.5",
       checkedAt: new Date().toISOString(),
       packageRoot: normalizeSlashes(packageRoot),
       projectJsonExists: true,
@@ -3541,7 +3541,7 @@
     var plan = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.3.5",
+      appVersion: "1.4.5",
       createdAt: new Date().toISOString(),
       projectId: project.projectId,
       projectName: project.projectName,
@@ -3656,7 +3656,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.3.5",
+      appVersion: "1.4.5",
       checkedAt: new Date().toISOString(),
       projectRootPath: normalizeSlashes(project.projectRootPath),
       planPath: normalizeSlashes(planPath),

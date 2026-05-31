@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ExtensionManifest Version="11.0" ExtensionBundleId="com.au.dub.panel" ExtensionBundleVersion="1.3" ExtensionBundleName="AU Dub Panel" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<ExtensionManifest Version="11.0" ExtensionBundleId="com.au.dub.panel" ExtensionBundleVersion="1.4" ExtensionBundleName="AU Dub Panel" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ExtensionList>
-    <Extension Id="com.au.dub.panel" Version="1.3" />
+    <Extension Id="com.au.dub.panel" Version="1.4" />
   </ExtensionList>
 
   <ExecutionEnvironment>

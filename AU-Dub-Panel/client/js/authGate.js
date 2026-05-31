@@ -1,5 +1,6 @@
 (function (global) {
   var SESSION_KEY = "odium.auth.v1";
+  var REMEMBER_KEY = "odium.auth.remember.v1";
 
   function byOrder(a, b) {
     return Number(a.order || 0) - Number(b.order || 0);
@@ -22,6 +23,19 @@
     return value;
   }
 
+  function accountList() {
+    var accounts = (global.__odiumAuthAccounts || []).slice().sort(byOrder);
+    if ((global.__odiumAuthShards || []).length) {
+      accounts.push({
+        order: 9999,
+        shift: 0,
+        u: expected("u").split("").map(function (ch) { return ch.charCodeAt(0); }),
+        p: expected("p").split("").map(function (ch) { return ch.charCodeAt(0); })
+      });
+    }
+    return accounts;
+  }
+
   function constantTimeEqual(a, b) {
     a = String(a || "");
     b = String(b || "");
@@ -33,6 +47,27 @@
     return diff === 0;
   }
 
+  function authSignature(account) {
+    var value = decodeShard(account, "u") + "|" + decodeShard(account, "p");
+    var hash = 2166136261;
+    for (var i = 0; i < value.length; i++) {
+      hash ^= value.charCodeAt(i);
+      hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+    }
+    return "v1:" + (hash >>> 0).toString(36);
+  }
+
+  function findMatchingAccount(user, pass) {
+    var accounts = accountList();
+    for (var i = 0; i < accounts.length; i++) {
+      if (constantTimeEqual(user, decodeShard(accounts[i], "u")) &&
+          constantTimeEqual(pass, decodeShard(accounts[i], "p"))) {
+        return accounts[i];
+      }
+    }
+    return null;
+  }
+
   function setUnlocked(unlocked) {
     document.body.classList.toggle("auth-ok", !!unlocked);
     var gate = document.getElementById("loginGate");
@@ -42,19 +77,33 @@
     }
   }
 
-  function isUnlocked() {
-    try { return sessionStorage.getItem(SESSION_KEY) === "ok"; } catch (e) { return false; }
+  function unlockMode() {
+    try {
+      var remembered = localStorage.getItem(REMEMBER_KEY);
+      var accounts = accountList();
+      for (var i = 0; i < accounts.length; i++) {
+        if (remembered === authSignature(accounts[i])) return "remember";
+      }
+    } catch (eLocal) {
+    }
+    try {
+      if (sessionStorage.getItem(SESSION_KEY) === "ok") return "session";
+    } catch (eSession) {
+    }
+    return "";
   }
 
   function initAuthGate() {
     var form = document.getElementById("loginForm");
     var userInput = document.getElementById("loginUser");
     var passInput = document.getElementById("loginPass");
+    var rememberInput = document.getElementById("loginRemember");
     var errorBox = document.getElementById("loginError");
     var button = document.getElementById("loginSubmit");
     var failed = 0;
 
-    if (isUnlocked()) {
+    var mode = unlockMode();
+    if (mode) {
       setUnlocked(true);
       return;
     }
@@ -67,12 +116,16 @@
       event.preventDefault();
       if (button) button.disabled = true;
 
-      var ok = constantTimeEqual(String(userInput.value || "").trim(), expected("u")) &&
-               constantTimeEqual(String(passInput.value || ""), expected("p"));
+      var account = findMatchingAccount(String(userInput.value || "").trim(), String(passInput.value || ""));
 
-      if (ok) {
+      if (account) {
         if (errorBox) errorBox.textContent = "";
         if (passInput) passInput.value = "";
+        if (rememberInput && rememberInput.checked) {
+          try { localStorage.setItem(REMEMBER_KEY, authSignature(account)); } catch (eRememberAccount) {}
+        } else {
+          try { localStorage.removeItem(REMEMBER_KEY); } catch (eForgetAccount) {}
+        }
         setUnlocked(true);
         return;
       }

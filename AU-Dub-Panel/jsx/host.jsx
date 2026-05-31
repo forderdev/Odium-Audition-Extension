@@ -1,11 +1,11 @@
 /*
-  AU Dub Panel - Adobe Audition ExtendScript bridge v1.3.4
+  AU Dub Panel - Adobe Audition ExtendScript bridge v1.4.4
 
   Bu dosya eski ExtendScript motorlarıyla uyumlu olacak şekilde yazıldı.
   Özellikle JSON.parse / JSON.stringify her Audition kurulumunda güvenilir olmayabilir.
-  v1.3.4: AU_probeApi() eklendi - canlı multitrack/clip scripting API'sinin bu Audition
+  v1.4.4: AU_probeApi() eklendi - canlı multitrack/clip scripting API'sinin bu Audition
   sürümünde gerçekten var olup olmadığını keşfetmek için.
-  v1.3.5: Probe derinleştirildi - doc.audioTracks, track[0], clip koleksiyonu ve metod
+  v1.4.5: Probe derinleştirildi - doc.audioTracks, track[0], clip koleksiyonu ve metod
   argümanları (addAudioClip imzası) dökülüyor. Audition 25.6.4 MultitrackDocument/audioTracks
   API'si doğrulandı; clip ekleme metodunun imzası bu probe ile netleşecek.
 */
