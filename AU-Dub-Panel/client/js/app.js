@@ -5,6 +5,7 @@
 
   var els = {
     updateBtn: document.getElementById("updateBtn"),
+    loginUpdateBtn: document.getElementById("loginUpdateBtn"),
     statusPill: document.getElementById("statusPill"),
     projectName: document.getElementById("projectName"),
     gapSeconds: document.getElementById("gapSeconds"),
@@ -1368,8 +1369,8 @@
     if (!m || !m.version) return;
     if (cmpVer(m.version, CURRENT_VERSION) > 0) {
       state.update = m;
-      if (els.updateBtn) { els.updateBtn.textContent = "⟳ Güncelle (v" + m.version + ")"; els.updateBtn.classList.remove("hidden"); }
-      log("Yeni sürüm var: v" + m.version + " (mevcut v" + CURRENT_VERSION + "). Üstteki 'Güncelle'ye bas.", "Güncelleme var");
+      revealUpdateButtons(m);
+      log("Yeni sürüm var: v" + m.version + " (mevcut v" + CURRENT_VERSION + "). 'Güncelle'ye bas.", "Güncelleme var");
       if (m.notes) log("Sürüm notu: " + m.notes, "Güncelleme var");
     } else {
       log("Güncelleme kontrolü: en güncel surumdesin (v" + CURRENT_VERSION + ").", "Hazır");
@@ -1392,33 +1393,49 @@
       }).on("error", function () {});
     } catch (e) {}
   }
-  if (els.updateBtn) {
-    els.updateBtn.addEventListener("click", function () {
-      var m = state.update; if (!m) { checkForUpdate(); return; }
-      var su = m.setupUrl || m.url || "";
-      if (!su) { log("Güncelleme adresi (setupUrl) yok.", "Uyarı"); return; }
-      if (/\.exe(\?|$)/i.test(su)) {
-        log("Güncelleme indiriliyor...", "Güncelleniyor");
-        btnStart(els.updateBtn);
-        try {
-          var req = nodeReq(); var os = req("os"), path = req("path");
-          var dest = path.join(os.tmpdir(), "OdiumStudioSetup_" + Date.now() + ".exe");
-          downloadFile(su, dest, function (err) {
-            if (err) { log("İndirilemedi: " + err.message + " — tarayıcıda açılıyor.", "Uyarı"); openUrl(su); btnFail(els.updateBtn); return; }
-            log("İndirildi. Kurulum başlatılıyor — Audition'ı KAPAT, kurulumu bitir, tekrar aç.", "Hazır");
-            try { req("child_process").spawn(dest, [], { detached: true, stdio: "ignore" }).unref(); btnDone(els.updateBtn); }
-            catch (e) { openUrl(dest); }
-          });
-        } catch (e) { log("Güncelleme hatası: " + e.message + " — tarayıcıda açılıyor.", "Uyarı"); openUrl(su); btnFail(els.updateBtn); }
-      } else {
-        openUrl(su);
-        log("Güncelleme sayfası tarayıcıda açıldı.", "Hazır");
-      }
-    });
+  // Yeni sürüm bulununca: hem üst bar hem GİRİŞ ekranındaki Güncelle butonunu göster.
+  // Böylece kullanıcı login ekranındayken bile güncelleyebilir.
+  function revealUpdateButtons(m) {
+    // Üst bar dar olduğu için kısa etiket; giriş ekranında yer bol, sürümü göster.
+    if (els.updateBtn) {
+      els.updateBtn.textContent = "⟳ Güncelle";
+      els.updateBtn.title = "Yeni sürüm v" + m.version;
+      els.updateBtn.classList.remove("hidden");
+    }
+    if (els.loginUpdateBtn) {
+      els.loginUpdateBtn.textContent = "⟳ Güncelle (v" + m.version + ")";
+      els.loginUpdateBtn.classList.remove("hidden");
+    }
   }
+
+  function runUpdate(btn) {
+    var m = state.update; if (!m) { checkForUpdate(); return; }
+    var su = m.setupUrl || m.url || "";
+    if (!su) { log("Güncelleme adresi (setupUrl) yok.", "Uyarı"); return; }
+    if (/\.exe(\?|$)/i.test(su)) {
+      log("Güncelleme indiriliyor...", "Güncelleniyor");
+      btnStart(btn);
+      try {
+        var req = nodeReq(); var os = req("os"), path = req("path");
+        var dest = path.join(os.tmpdir(), "OdiumStudioSetup_" + Date.now() + ".exe");
+        downloadFile(su, dest, function (err) {
+          if (err) { log("İndirilemedi: " + err.message + " - tarayıcıda açılıyor.", "Uyarı"); openUrl(su); btnFail(btn); return; }
+          log("İndirildi. Kurulum başlatılıyor - Audition'ı KAPAT, kurulumu bitir, tekrar aç.", "Hazır");
+          try { req("child_process").spawn(dest, [], { detached: true, stdio: "ignore" }).unref(); btnDone(btn); }
+          catch (e) { openUrl(dest); }
+        });
+      } catch (e) { log("Güncelleme hatası: " + e.message + " - tarayıcıda açılıyor.", "Uyarı"); openUrl(su); btnFail(btn); }
+    } else {
+      openUrl(su);
+      log("Güncelleme sayfası tarayıcıda açıldı.", "Hazır");
+    }
+  }
+
+  if (els.updateBtn) els.updateBtn.addEventListener("click", function () { runUpdate(els.updateBtn); });
+  if (els.loginUpdateBtn) els.loginUpdateBtn.addEventListener("click", function () { runUpdate(els.loginUpdateBtn); });
 
   renderPresetDetails();
   setRole(null);
   try { checkForUpdate(); } catch (e) {}
-  log("Panel yüklendi. v1.4 — Odium Studio Audition Plugini.", "Hazır");
+  log("Panel yüklendi. v1.4 - Odium Studio Audition Plugini.", "Hazır");
 })();
