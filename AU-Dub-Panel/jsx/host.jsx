@@ -1,11 +1,11 @@
 /*
-  AU Dub Panel - Adobe Audition ExtendScript bridge v1.4.4
+  AU Dub Panel - Adobe Audition ExtendScript bridge v1.1.4
 
   Bu dosya eski ExtendScript motorlarıyla uyumlu olacak şekilde yazıldı.
   Özellikle JSON.parse / JSON.stringify her Audition kurulumunda güvenilir olmayabilir.
-  v1.4.4: AU_probeApi() eklendi - canlı multitrack/clip scripting API'sinin bu Audition
+  v1.1.4: AU_probeApi() eklendi - canlı multitrack/clip scripting API'sinin bu Audition
   sürümünde gerçekten var olup olmadığını keşfetmek için.
-  v1.4.5: Probe derinleştirildi - doc.audioTracks, track[0], clip koleksiyonu ve metod
+  v1.1.5: Probe derinleştirildi - doc.audioTracks, track[0], clip koleksiyonu ve metod
   argümanları (addAudioClip imzası) dökülüyor. Audition 25.6.4 MultitrackDocument/audioTracks
   API'si doğrulandı; clip ekleme metodunun imzası bu probe ile netleşecek.
 */
@@ -643,13 +643,31 @@ function AU_readTakeClips(payloadJson) {
     var n = coll.length;
     add("Track " + (resolvedIndex + 1) + " ('" + trackName + "') clip sayısı: " + n + " / sampleRate: " + sampleRate);
 
+    // Clip'in diskteki kaynak dosyasını bulmayı dene (API sürüme göre değişir; hepsi try/catch).
+    function AU_clipFilePath(clip) {
+      function looksPath(v) {
+        var s = String(v || "");
+        return s && s !== "undefined" && s !== "null" && (s.indexOf("\\") >= 0 || s.indexOf("/") >= 0);
+      }
+      var p = "";
+      try { if (!p && clip.file) { var f = clip.file; var v = (f && f.fsName) ? f.fsName : f; if (looksPath(v)) p = String(v); } } catch (ep1) {}
+      try { if (!p && clip.link && clip.link.path && looksPath(clip.link.path)) p = String(clip.link.path); } catch (ep2) {}
+      try { if (!p && clip.sourceFile) { var sf = clip.sourceFile; var sv = (sf && sf.fsName) ? sf.fsName : sf; if (looksPath(sv)) p = String(sv); } } catch (ep3) {}
+      try { if (!p && clip.path && looksPath(clip.path)) p = String(clip.path); } catch (ep4) {}
+      try { if (!p && clip.audioDocument && clip.audioDocument.path && looksPath(clip.audioDocument.path)) p = String(clip.audioDocument.path); } catch (ep5) {}
+      try { if (!p && clip.waveDocument && clip.waveDocument.path && looksPath(clip.waveDocument.path)) p = String(clip.waveDocument.path); } catch (ep6) {}
+      try { if (!p && clip.document && clip.document.path && looksPath(clip.document.path)) p = String(clip.document.path); } catch (ep7) {}
+      return p;
+    }
+
     var items = [];
     for (var i = 0; i < n; i++) {
       var clip = coll[i];
-      var startSamples = 0, durSamples = 0, name = "";
+      var startSamples = 0, durSamples = 0, name = "", filePath = "";
       try { startSamples = Number(clip.startTime); } catch (e1) {}
       try { durSamples = Number(clip.duration); } catch (e2) {}
       try { name = String(clip.name); } catch (e3) {}
+      try { filePath = AU_clipFilePath(clip); } catch (e4) {}
       if (!(startSamples >= 0)) startSamples = 0;
       if (!(durSamples >= 0)) durSamples = 0;
       var startSeconds = startSamples / sampleRate;
@@ -657,8 +675,8 @@ function AU_readTakeClips(payloadJson) {
       // saniyeyi 3 hane yuvarla (ES3: toFixed var)
       var ss = Number(startSeconds.toFixed(3));
       var ds = Number(durSeconds.toFixed(3));
-      items.push("{\"name\":\"" + AU_escapeJsonString(name) + "\",\"startSeconds\":" + ss + ",\"durationSeconds\":" + ds + ",\"startSamples\":" + startSamples + ",\"durationSamples\":" + durSamples + "}");
-      if (i < 6) add("  clip[" + i + "] '" + name + "' start=" + ss + "s dur=" + ds + "s");
+      items.push("{\"name\":\"" + AU_escapeJsonString(name) + "\",\"startSeconds\":" + ss + ",\"durationSeconds\":" + ds + ",\"startSamples\":" + startSamples + ",\"durationSamples\":" + durSamples + ",\"filePath\":\"" + AU_escapeJsonString(filePath) + "\"}");
+      if (i < 6) add("  clip[" + i + "] '" + name + "' start=" + ss + "s dur=" + ds + "s" + (filePath ? " dosya=OK" : ""));
     }
 
     var extra = "{\"trackIndex\":" + resolvedIndex + ",\"trackName\":\"" + AU_escapeJsonString(trackName) + "\",\"sampleRate\":" + sampleRate + ",\"clipCount\":" + n + ",\"clips\":[" + items.join(",") + "]}";

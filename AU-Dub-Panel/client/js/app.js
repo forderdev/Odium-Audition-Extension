@@ -65,6 +65,7 @@
     voAlignTakesBtn: document.getElementById("voAlignTakesBtn"),
     voReplaceTakeBtn: document.getElementById("voReplaceTakeBtn"),
     voSendToMixerBtn: document.getElementById("voSendToMixerBtn"),
+    voLevelMatch: document.getElementById("voLevelMatch"),
     voAttachFromFolderBtn: document.getElementById("voAttachFromFolderBtn"),
     voAutoAttachBtn: document.getElementById("voAutoAttachBtn"),
     voHealthBtn: document.getElementById("voHealthBtn"),
@@ -895,6 +896,9 @@
         var extra = parsed.extra || {};
         var clips = extra.clips || [];
         log("Track 2'de " + clips.length + " kayıt bulundu.", "Hazır");
+        var clipsWithPath = 0;
+        for (var cw = 0; cw < clips.length; cw++) if (clips[cw].filePath) clipsWithPath++;
+        log("Kayıt dosya yolu okunan: " + clipsWithPath + "/" + clips.length + (clipsWithPath ? "" : " - sorun değil; düzey eşitleme paketlemede clip adından dosya eşleştirecek."));
         if (!clips.length) { log("Track 2'de hiç clip yok. Kayıtlarını 2. track'e aldığından emin ol.", "Uyarı"); btnFail(els.voAlignTakesBtn); return; }
         try {
           var result = ProjectStore.alignTakesFromLiveClips(state.project, clips, { mode: els.voAlignMode ? els.voAlignMode.value : "position" });
@@ -988,12 +992,30 @@
           try {
             btnProgress(btn, 25);
             ProjectStore.saveProject(state.project);
-            var result = ProjectStore.packageProject(state.project, { sesxPath: sesxPath });
+            setBusy("Paket + düzey eşitleme");
+            var result = ProjectStore.packageProject(state.project, {
+              sesxPath: sesxPath,
+              levelMatchOriginal: !!(els.voLevelMatch && els.voLevelMatch.checked),
+              ffmpegPath: bundledFfmpeg() || ""
+            });
             state.lastPackageRoot = result.packageRoot;
             log("Paket hazır: " + result.packageRoot + " (orijinal " + result.copied + ", take " + result.copiedTakes + ")", "Hazır");
             if (result.sesxCopied) log(".sesx pakete kopyalandı: " + result.sesxCopied, "Hazır");
             else if (result.sesxMissing) log("UYARI: .sesx kopyalanamadı (yol bulunamadı).", "Uyarı");
             if (result.sessionMediaCount) log("Session medyası (kayıt/merged/imported) .sesx'in yanına aynı göreli yolla kopyalandı: " + result.sessionMediaCount + " ses dosyası.", "Hazır");
+            if (result.levelMatch) {
+              if (result.levelMatch.leveled > 0) {
+                log("Düzey eşitleme: " + result.levelMatch.leveled + " kayıt dosyası, " + result.levelMatch.lineCount + " replik hedefine göre orijinal düzeyine çekildi" + (result.levelMatch.resolvedByName ? " (" + result.levelMatch.resolvedByName + " replikte dosya clip adından bulundu)" : "") + ". Mixçi projeyi açtığında sesler eşit duyulur.", "Hazır");
+              } else {
+                log("Düzey eşitleme istendi ama hiçbir kayıt dosyasına uygulanamadı. Kayıtlar düz kopyalandı.", "Uyarı");
+                // Sessiz kalmasın: kullanıcı logu görmüyor olabilir (log gizli panelde).
+                try {
+                  var lvlWhy = (result.levelMatch.warnings && result.levelMatch.warnings.length) ? result.levelMatch.warnings.slice(0, 3).join("\n") : "Sebep bilinmiyor.";
+                  window.alert("DÜZEY EŞİTLEME UYGULANAMADI!\n\nPaket yine de oluşturuldu ama kayıtların düzeyi DEĞİŞMEDİ.\n\nSebep:\n" + lvlWhy);
+                } catch (eAlert) {}
+              }
+              if (result.levelMatch.warnings && result.levelMatch.warnings.length) log("Düzey uyarıları: " + result.levelMatch.warnings.slice(0, 6).join(" | ") + (result.levelMatch.warnings.length > 6 ? " ..." : ""), "Uyarı");
+            }
 
             btnProgress(btn, 60);
             setBusy("Zip oluşturuluyor");
@@ -1324,7 +1346,7 @@
   //  version.json'u barındır (GitHub Releases / web sunucu) ve URL'i aşağıya yaz.
   //  version.json örneği: { "version":"1.6.0", "setupUrl":"https://.../OdiumStudioSetup.exe", "notes":"..." }
   // =====================================================================
-  var CURRENT_VERSION = "1.4";
+  var CURRENT_VERSION = "1.1";
   var UPDATE_MANIFEST_URL = "https://api.github.com/repos/forderdev/Odium-Audition-Extension/contents/AU-Dub-Panel/version.json?ref=main";
 
   function cmpVer(a, b) {
@@ -1437,5 +1459,5 @@
   renderPresetDetails();
   setRole(null);
   try { checkForUpdate(); } catch (e) {}
-  log("Panel yüklendi. v1.4 - Odium Studio Audition Plugini.", "Hazır");
+  log("Panel yüklendi. v1.1 - Odium Studio Audition Plugini.", "Hazır");
 })();

@@ -75,7 +75,7 @@
       </div>
       <div class="topbar-end">
         <button id="updateBtn" class="updateBtn hidden" type="button">⟳ Güncelle</button>
-        <span class="ver">v1.4</span>
+        <span class="ver">v1.1</span>
         <span id="statusPill" class="pill">Hazır</span>
       </div>
     </header>
@@ -147,6 +147,10 @@
           <div class="step-card">
             <h3 class="step-title">Projeyi mixçiye gönder</h3>
             <p class="step-hint">Proje kaydedilir, paket .sesx'in klasöründe oluşturulur, .sesx ile birlikte zip'lenir ve klasör açılır. Zip'i mixçiye gönder.</p>
+            <label class="rememberRow" title="Paketteki kayıt dosyalarının ortalama düzeyi (dB), eşleştikleri orijinallerin ortalama düzeyine çekilir. Senin session'ındaki dosyalara dokunulmaz; mixçi projeyi açtığında sesler eşitlenmiş duyulur. Tepe -1 dBFS'i aşmayacak şekilde korunur.">
+              <input id="voLevelMatch" type="checkbox" checked />
+              <span>Kayıt düzeyini orijinale eşitle (ortalama dB)</span>
+            </label>
             <button id="voSendToMixerBtn" class="btn btn-primary block" type="button">Paketle + .sesx ile Zip'le</button>
           </div>
         </li>
@@ -407,7 +411,6 @@
   <script src="./js/auth/a08.js"></script>
   <script src="./js/auth/a09.js"></script>
   <script src="./js/auth/a10.js"></script>
-  <script src="./js/auth/a11.js"></script>
   <script src="./js/auth/a12.js"></script>
   <script src="./js/auth/a13.js"></script>
   <script src="./js/auth/a14.js"></script>
@@ -417,7 +420,6 @@
   <script src="./js/auth/a18.js"></script>
   <script src="./js/auth/a19.js"></script>
   <script src="./js/auth/a20.js"></script>
-  <script src="./js/auth/a21.js"></script>
   <script src="./js/auth/a22.js"></script>
   <script src="./js/authGate.js"></script>
 </body>

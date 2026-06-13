@@ -13,7 +13,7 @@
 ; ============================================================
 
 #define AppName "Odium Studio - Audition Plugini"
-#define AppVersion "1.0"
+#define AppVersion "1.1"
 #define Publisher "Odium Studio"
 
 [Setup]

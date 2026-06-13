@@ -736,7 +736,7 @@
     return {
       schemaVersion: 2,
       app: "AU Dub Panel",
-      appVersion: "1.4.5",
+      appVersion: "1.1.5",
       projectId: uid("project"),
       projectName: options.projectName || "Game_Dub_Project",
       createdAt: new Date().toISOString(),
@@ -831,7 +831,7 @@
     return {
       schemaVersion: 2,
       app: "AU Dub Panel",
-      appVersion: "1.4.5",
+      appVersion: "1.1.5",
       projectId: uid("project"),
       projectName: options.projectName || "Game_Dub_Project",
       createdAt: new Date().toISOString(),
@@ -1083,11 +1083,13 @@
         preserveRecordedTail: true,
         notes: group.length > 1 ? (group.length + " parça tek bölge olarak kesilir; aralarındaki boşluklar korunur.") : "Tek parça."
       };
+      // Audition clip'in kaynak dosyası okunabildiyse düzey eşitleme referansı olarak kullanılır.
+      var oFilePath = (o.filePath && String(o.filePath).trim()) ? normalizeSlashes(String(o.filePath).trim()) : null;
       lines.push({
         lineId: lineId,
         originalName: nm,
         originalRelativePath: null,
-        originalAbsolutePath: null,
+        originalAbsolutePath: oFilePath,
         originalDuration: spanDur,
         timelineStart: mergedStart,
         timelineEnd: mergedEnd,
@@ -1116,6 +1118,9 @@
     if (!project || !project.lines || typeof project.lines.length === "undefined") {
       throw new Error("Bu dosya geçerli bir AU Dub project.json değil.");
     }
+    // Paket başka makinede açıldıysa içindeki mutlak yollar geçersiz olabilir;
+    // yüklenen json'un konumu, göreli yolları çözmek için yedek kök olarak saklanır.
+    project.loadedFromPath = normalizeSlashes(filePath);
     project.updatedAt = project.updatedAt || new Date().toISOString();
     project.exportPreset = project.exportPreset || createExportPreset("game_wav_48k_24_mono");
     project.availableExportPresets = project.availableExportPresets || getAllExportPresets();
@@ -1162,6 +1167,120 @@
     return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "_" + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
   }
 
+  function getChildProcessModule() {
+    try { return (global.cep_node && global.cep_node.require ? global.cep_node.require : global.require)("child_process"); }
+    catch (e) { return null; }
+  }
+
+  // ffmpeg volumedetect ile bir dosyanın ortalama (mean) ve tepe (max) dB'sini ölçer. Senkron; hata halinde null.
+  function measureVolumeStats(ffmpegExe, filePath, cp) {
+    try {
+      var r = cp.spawnSync(ffmpegExe, ["-hide_banner", "-nostats", "-i", filePath, "-af", "volumedetect", "-f", "null", "NUL"], { encoding: "utf8", windowsHide: true });
+      var txt = String(r.stderr || "") + String(r.stdout || "");
+      var mm = /mean_volume:\s*(-?[\d.]+)\s*dB/.exec(txt);
+      var mx = /max_volume:\s*(-?[\d.]+)\s*dB/.exec(txt);
+      if (!mm) return null;
+      return { mean: Number(mm[1]), max: mx ? Number(mx[1]) : null };
+    } catch (e) { return null; }
+  }
+
+  // SESLENDİRMEN tarafı düzey eşitleme: her repliğin kayıt dosyasına, orijinalinin
+  // ortalama dB'sine gelecek gain hesaplar. Aynı dosyayı paylaşan replikler (tek uzun
+  // kayıt + delete-silence) tek dosyada birleştiği için hedeflerin ortalaması alınır.
+  // Tepe -1 dBFS'i aşacaksa gain kısılır (clipping koruması).
+  // Kayıt dosyası iki yoldan bulunur: (1) Audition API clip dosya yolunu verdiyse
+  // take.liveFilePath; (2) veremiyorsa clip ADI session klasöründeki dosya adlarıyla
+  // eşleştirilir (Audition kayıt clip'ini dosya adıyla adlandırır).
+  function buildRecordingGainMap(project, ffmpegExe, modules, sesxDir, skipPrefixLower) {
+    var out = { gains: {}, warnings: [], ffmpegOk: false, lineCount: 0, fileCount: 0, resolvedByName: 0 };
+    var cp = getChildProcessModule();
+    if (!cp) { out.warnings.push("child_process erişimi yok; düzey eşitleme atlandı."); return out; }
+    try {
+      var probe = cp.spawnSync(ffmpegExe, ["-version"], { encoding: "utf8", windowsHide: true });
+      out.ffmpegOk = probe && probe.status === 0;
+    } catch (eP) {}
+    if (!out.ffmpegOk) { out.warnings.push("FFmpeg çalıştırılamadı (" + ffmpegExe + "); düzey eşitleme atlandı."); return out; }
+
+    // Session klasöründeki ses dosyalarını taban adlarına göre indexle (isimden eşleştirme için).
+    var mediaByBase = {};
+    if (sesxDir) {
+      try {
+        var media = walkAudioFiles(sesxDir, modules, []);
+        for (var m = 0; m < media.length; m++) {
+          var mPath = media[m].path;
+          var mLower = normalizeSlashes(mPath).toLowerCase();
+          if (skipPrefixLower && mLower.indexOf(skipPrefixLower) === 0) continue; // paketin kendi içi
+          if (mLower.indexOf("_au_dub_package_") >= 0) continue;                  // eski paketler
+          var base = baseNameNoExt(modules.path.basename(mPath)).toLowerCase();
+          if (!mediaByBase[base]) mediaByBase[base] = [];
+          mediaByBase[base].push(mPath);
+        }
+      } catch (eWalk) { out.warnings.push("Session klasörü taranamadı: " + eWalk.message); }
+    }
+
+    function resolveRecordingPath(take, line) {
+      if (take.liveFilePath) {
+        try { if (modules.fs.existsSync(take.liveFilePath)) return take.liveFilePath; } catch (e1) {}
+      }
+      // Fallback: clip adı -> session medya dosya adı
+      var nm = take.originalTakeName || take.fileName || "";
+      if (nm) {
+        var key = baseNameNoExt(String(nm)).toLowerCase();
+        var arr = mediaByBase[key];
+        if (arr && arr.length) {
+          if (arr.length > 1) out.warnings.push("Aynı adda birden çok kayıt dosyası, ilki kullanıldı: " + nm);
+          out.resolvedByName++;
+          return arr[0];
+        }
+      }
+      out.warnings.push("Kayıt dosyası bulunamadı (clip adı: " + (nm || "?") + "): " + (line.originalName || line.lineId));
+      return "";
+    }
+
+    var statCache = {};
+    function stats(p) {
+      var k = normalizeSlashes(p).toLowerCase();
+      if (!(k in statCache)) statCache[k] = measureVolumeStats(ffmpegExe, p, cp);
+      return statCache[k];
+    }
+
+    var deltasByFile = {};
+    for (var i = 0; i < project.lines.length; i++) {
+      var line = project.lines[i];
+      var take = getSelectedTake(line);
+      if (!take) continue;
+      var rec = resolveRecordingPath(take, line);
+      if (!rec) continue;
+      var orig = resolveLevelRefPath(project, line, modules);
+      if (!orig) { out.warnings.push("Orijinal dosya bulunamadı: " + (line.originalName || line.lineId)); continue; }
+      var so = stats(orig);
+      var sr = stats(rec);
+      if (!so || !sr || sr.max === null) { out.warnings.push("Düzey ölçülemedi: " + (line.originalName || line.lineId)); continue; }
+      var key = normalizeSlashes(rec).toLowerCase();
+      if (!deltasByFile[key]) deltasByFile[key] = { path: rec, deltas: [], recMax: sr.max };
+      deltasByFile[key].deltas.push(so.mean - sr.mean);
+      out.lineCount++;
+    }
+    for (var k in deltasByFile) {
+      if (!deltasByFile.hasOwnProperty(k)) continue;
+      var d = deltasByFile[k];
+      var sum = 0;
+      for (var j = 0; j < d.deltas.length; j++) sum += d.deltas[j];
+      var target = sum / d.deltas.length;
+      var maxBoost = -1.0 - d.recMax; // tepe -1 dBFS sınırı
+      var applied = Math.min(target, maxBoost);
+      out.gains[k] = {
+        path: d.path,
+        target: Number(target.toFixed(2)),
+        applied: Number(applied.toFixed(2)),
+        clamped: applied < target - 0.01,
+        lines: d.deltas.length
+      };
+      out.fileCount++;
+    }
+    return out;
+  }
+
   function packageProject(project, options) {
     var modules = getNodeModules();
     if (!modules) throw new Error("Node.js dosya yazma erişimi yok. Paketleme için CEP içinde --enable-nodejs çalışmalı.");
@@ -1183,7 +1302,7 @@
     ensureProjectFolders(packageRoot, modules);
 
     var packaged = clone(project);
-    packaged.appVersion = "1.4.0";
+    packaged.appVersion = "1.1.0";
     packaged.packageCreatedAt = new Date().toISOString();
     packaged.packageRootPath = packageRoot;
     packaged.projectRootPath = packageRoot;
@@ -1284,6 +1403,22 @@
     var sesxCopied = null;
     var sesxMissing = false;
     var sessionMediaCount = 0;
+    var leveledSessionFiles = 0;
+
+    // Düzey eşitleme (seslendirmen tarafı): paket kopyalarındaki kayıt dosyaları
+    // orijinallerinin ortalama dB'sine çekilir. Aktörün KENDİ session dosyalarına
+    // dokunulmaz; sadece pakete yazılan kopyalar değişir. Gain haritası ORİJİNAL
+    // proje üzerinden hesaplanır (packaged kopyada yollar yeniden yazıldı).
+    var levelGains = null;
+    var levelFfmpeg = (options.ffmpegPath && String(options.ffmpegPath).trim()) ? String(options.ffmpegPath).trim()
+      : ((project.ffmpegPath && String(project.ffmpegPath).trim()) ? String(project.ffmpegPath).trim() : "ffmpeg");
+    if (options.levelMatchOriginal && sesxPath) {
+      var sesxDirForLevel = "";
+      try { sesxDirForLevel = modules.path.dirname(sesxPath); } catch (eD) {}
+      try { levelGains = buildRecordingGainMap(project, levelFfmpeg, modules, sesxDirForLevel, normalizeSlashes(packageRoot).toLowerCase()); }
+      catch (eGain) { levelGains = { gains: {}, warnings: ["Düzey haritası hesaplanamadı: " + eGain.message], lineCount: 0, fileCount: 0, resolvedByName: 0 }; }
+    }
+
     if (sesxPath) {
       try {
         if (modules.fs.existsSync(sesxPath)) {
@@ -1318,7 +1453,27 @@
             try {
               var mDestDir = modules.path.dirname(mDest);
               if (!modules.fs.existsSync(mDestDir)) modules.fs.mkdirSync(mDestDir, { recursive: true });
-              if (!modules.fs.existsSync(mDest)) modules.fs.copyFileSync(mp, mDest);
+              if (!modules.fs.existsSync(mDest)) {
+                // Bu dosya bir kayıt dosyasıysa ve gain hesaplandıysa: kopyalarken düzeyi eşitle.
+                var gainEntry = (levelGains && levelGains.gains) ? levelGains.gains[mpNorm] : null;
+                var leveledHere = false;
+                if (gainEntry && Math.abs(gainEntry.applied) >= 0.3) {
+                  var cpLvl = getChildProcessModule();
+                  if (cpLvl) {
+                    var rL = cpLvl.spawnSync(levelFfmpeg,
+                      ["-hide_banner", "-loglevel", "error", "-y", "-i", mp, "-af", "volume=" + gainEntry.applied + "dB", "-c:a", "pcm_f32le", mDest],
+                      { encoding: "utf8", windowsHide: true });
+                    if (rL && rL.status === 0 && modules.fs.existsSync(mDest)) {
+                      leveledHere = true;
+                      leveledSessionFiles++;
+                    } else {
+                      try { if (modules.fs.existsSync(mDest)) modules.fs.unlinkSync(mDest); } catch (eU) {}
+                      if (levelGains) levelGains.warnings.push("Gain uygulanamadı, düz kopyalandı: " + relMedia);
+                    }
+                  }
+                }
+                if (!leveledHere) modules.fs.copyFileSync(mp, mDest);
+              }
               sessionMediaCount++;
             } catch (eCopyM) {}
           }
@@ -1346,6 +1501,15 @@
       sesxCopied: sesxCopied,
       sesxMissing: sesxMissing,
       sessionMediaCount: sessionMediaCount,
+      leveledSessionFiles: leveledSessionFiles,
+      levelMatch: levelGains ? {
+        requested: true,
+        lineCount: levelGains.lineCount,
+        fileCount: levelGains.fileCount,
+        leveled: leveledSessionFiles,
+        resolvedByName: levelGains.resolvedByName || 0,
+        warnings: levelGains.warnings
+      } : null,
       packageVerify: packageVerify,
       packageVerifyError: packageVerifyError
     };
@@ -1725,7 +1889,7 @@
     modules.fs.writeFileSync(jsonPath, JSON.stringify({
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.4.5",
+      appVersion: "1.1.5",
       projectId: project.projectId,
       projectName: project.projectName,
       createdAt: new Date().toISOString(),
@@ -1923,7 +2087,7 @@
     var plan = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.4.5",
+      appVersion: "1.1.5",
       projectId: project.projectId,
       projectName: project.projectName,
       createdAt: new Date().toISOString(),
@@ -1994,7 +2158,7 @@
       mixMapId: uid("mixmap"),
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.4.5",
+      appVersion: "1.1.5",
       projectId: project.projectId,
       projectName: project.projectName,
       createdAt: new Date().toISOString(),
@@ -2275,7 +2439,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.4.5",
+      appVersion: "1.1.5",
       projectId: project.projectId,
       projectName: project.projectName,
       checkedAt: new Date().toISOString(),
@@ -2346,11 +2510,35 @@
     };
   }
 
+  // Düzey eşitleme referansı: repliğin orijinal ses dosyasını diskte bul.
+  // Paket başka makinede açıldıysa mutlak yol geçersiz olabilir; sırayla
+  // mutlak yol -> projectRoot+göreli -> yüklenen json'un kökü+göreli denenir.
+  function resolveLevelRefPath(project, line, modules) {
+    var cands = [];
+    if (line.originalAbsolutePath) cands.push(line.originalAbsolutePath);
+    if (line.originalRelativePath) {
+      if (project.projectRootPath) cands.push(modules.path.join(project.projectRootPath, line.originalRelativePath));
+      if (project.loadedFromPath) {
+        // .audub/project.json -> paket kökü iki klasör üstte
+        var pkgRoot = modules.path.dirname(modules.path.dirname(project.loadedFromPath));
+        cands.push(modules.path.join(pkgRoot, line.originalRelativePath));
+      }
+    }
+    for (var i = 0; i < cands.length; i++) {
+      try { if (cands[i] && modules.fs.existsSync(cands[i])) return normalizeSlashes(cands[i]); } catch (e) {}
+    }
+    return "";
+  }
+
   function createMixSplitItems(project, mixInfo) {
     var gap = Number(project.gapSeconds || 0);
     var cursor = 0;
     var used = {};
     var items = [];
+    var modules = getNodeModules();
+    // Düzey eşitleme artık SESLENDİRMEN tarafında, paketleme sırasında yapılır.
+    // Kesim anında eşitleme yalnız açıkça istenirse çalışır (mixçinin mix kararlarını ezmesin).
+    var levelMatchOn = project.levelMatchOriginal === true;
     for (var i = 0; i < project.lines.length; i++) {
       var line = project.lines[i];
       var take = getSelectedTake(line);
@@ -2370,6 +2558,7 @@
         end = Number((start + dur).toFixed(3));
       }
       var outName = uniqueName(baseNameNoExt(line.exportName || line.originalName || line.lineId) + "__mixsplit.wav", used);
+      var levelRef = (levelMatchOn && modules) ? resolveLevelRefPath(project, line, modules) : "";
       items.push({
         index: i + 1,
         lineId: line.lineId,
@@ -2384,6 +2573,7 @@
         mixFileName: mixInfo.fileName,
         mixFileRelativePath: mixInfo.relativePath,
         mixFileAbsolutePath: mixInfo.absolutePath,
+        levelRefPath: levelRef,
         preserveRecordedTail: true,
         sourceKind: "mix_split"
       });
@@ -2405,7 +2595,7 @@
     var plan = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.4.5",
+      appVersion: "1.1.5",
       projectId: project.projectId,
       projectName: project.projectName,
       createdAt: new Date().toISOString(),
@@ -2475,23 +2665,52 @@
     lines.push("Set-Content -LiteralPath $logPath -Encoding UTF8 -Value ('AU Dub Panel FFmpeg Mix Split Log - ' + (Get-Date -Format o))");
     lines.push("function AUWrite($msg) { Write-Host $msg; Add-Content -LiteralPath $logPath -Encoding UTF8 -Value $msg }");
     lines.push("function AUWarn($msg) { Write-Warning $msg; Add-Content -LiteralPath $logPath -Encoding UTF8 -Value ('WARNING: ' + $msg) }");
+    // Sayilari her zaman nokta ondalikla yaz (TR yerelde virgul ffmpeg'i bozar).
+    lines.push("function AUNum($n) { return ([double]$n).ToString('0.0#', [System.Globalization.CultureInfo]::InvariantCulture) }");
+    // volumedetect ciktisindan ortalama (mean) ve tepe (max) dB okur; stderr yakalanir, konsola dokulmez.
+    lines.push("function AUVolStats($file) {");
+    lines.push("  $txt = (& $ffmpeg -hide_banner -nostats -i $file -af volumedetect -f null NUL 2>&1) | Out-String");
+    lines.push("  $r = @{ mean = $null; max = $null }");
+    lines.push("  if ($txt -match 'mean_volume:\\s*(-?[0-9\\.]+)\\s*dB') { $r.mean = [double]$Matches[1] }");
+    lines.push("  if ($txt -match 'max_volume:\\s*(-?[0-9\\.]+)\\s*dB') { $r.max = [double]$Matches[1] }");
+    lines.push("  return $r");
+    lines.push("}");
     lines.push("if (!(Get-Command $ffmpeg -ErrorAction SilentlyContinue)) { AUWarn " + psQuote("FFmpeg bulunamadi. ffmpeg.exe PATH icinde degil.") + "; exit 10 }");
     lines.push("if (!(Test-Path -LiteralPath $mixSource)) { AUWarn (\"Mix kaynak dosyasi yok: {0}\" -f $mixSource); exit 11 }");
     lines.push("$items = @(");
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
       var out = modules.path.join(outputDir, it.outputFileName);
-      lines.push("  @{ index = " + it.index + "; lineId = " + psQuote(it.lineId) + "; start = " + it.mixStart + "; duration = " + it.duration + "; output = " + psQuote(out) + " }");
+      lines.push("  @{ index = " + it.index + "; lineId = " + psQuote(it.lineId) + "; start = " + it.mixStart + "; duration = " + it.duration + "; output = " + psQuote(out) + "; levelRef = " + psQuote(it.levelRefPath || "") + " }");
     }
     lines.push(")");
-    lines.push("$ok = 0; $failed = 0");
+    lines.push("$ok = 0; $failed = 0; $leveled = 0");
     lines.push("foreach ($item in $items) {");
     lines.push("  AUWrite (\"Split [{0}/{1}] {2}: start={3}s dur={4}s -> {5}\" -f $item.index, $items.Count, $item.lineId, $item.start, $item.duration, $item.output)");
     lines.push("  & $ffmpeg -hide_banner -y -ss $item.start -t $item.duration -i $mixSource -c:a pcm_f32le $item.output");
-    lines.push("  if ($LASTEXITCODE -eq 0) { $ok++ } else { AUWarn (\"FFmpeg split hata kodu {0}: {1}\" -f $LASTEXITCODE, $item.lineId); $failed++ }");
+    lines.push("  if ($LASTEXITCODE -eq 0) {");
+    lines.push("    $ok++");
+    // Duzey esitleme: parcanin ortalama dB'sini orijinalinkine cek (tepe -1 dBFS'i gecmesin).
+    lines.push("    if ($item.levelRef -and (Test-Path -LiteralPath $item.levelRef)) {");
+    lines.push("      $o = AUVolStats $item.levelRef");
+    lines.push("      $s = AUVolStats $item.output");
+    lines.push("      if (($null -ne $o.mean) -and ($null -ne $s.mean) -and ($null -ne $s.max)) {");
+    lines.push("        $delta = $o.mean - $s.mean");
+    lines.push("        $maxBoost = -1.0 - $s.max");
+    lines.push("        $applied = $delta");
+    lines.push("        if ($applied -gt $maxBoost) { $applied = $maxBoost; AUWrite (\"  duzey: hedef {0} dB ama tepe korumasi nedeniyle {1} dB uygulanacak\" -f (AUNum $delta), (AUNum $applied)) }");
+    lines.push("        if ([math]::Abs($applied) -ge 0.3) {");
+    lines.push("          $tmp = $item.output + '.lvl.wav'");
+    lines.push("          & $ffmpeg -hide_banner -loglevel error -y -i $item.output -af ('volume=' + (AUNum $applied) + 'dB') -c:a pcm_f32le $tmp");
+    lines.push("          if ($LASTEXITCODE -eq 0) { Move-Item -LiteralPath $tmp -Destination $item.output -Force; $leveled++; AUWrite (\"  duzey esitlendi: orijinal {0} dB / kayit {1} dB / uygulanan {2} dB\" -f (AUNum $o.mean), (AUNum $s.mean), (AUNum $applied)) }");
+    lines.push("          else { AUWarn (\"  duzey uygulanamadi (ffmpeg kodu {0}): {1}\" -f $LASTEXITCODE, $item.lineId); if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force } }");
+    lines.push("        } else { AUWrite (\"  duzey zaten esit (fark \" + (AUNum $delta) + \" dB), dokunulmadi\") }");
+    lines.push("      } else { AUWarn (\"  duzey olculemedi: \" + $item.lineId) }");
+    lines.push("    }");
+    lines.push("  } else { AUWarn (\"FFmpeg split hata kodu {0}: {1}\" -f $LASTEXITCODE, $item.lineId); $failed++ }");
     lines.push("}");
     lines.push("AUWrite \"----------------------------------------\"");
-    lines.push("AUWrite (\"Split bitti. Basarili: {0} / Hatali: {1}\" -f $ok, $failed)");
+    lines.push("AUWrite (\"Split bitti. Basarili: {0} / Hatali: {1} / Duzeyi esitlenen: {2}\" -f $ok, $failed, $leveled)");
     lines.push("AUWrite (\"Log: {0}\" -f $logPath)");
     lines.push("if ($failed -gt 0) { exit 2 }");
     lines.push("exit 0");
@@ -2505,6 +2724,9 @@
     bat.push("pause");
     modules.fs.writeFileSync(batPath, bat.join("\r\n"), "utf8");
 
+    var levelMatchCount = 0;
+    for (var lm = 0; lm < items.length; lm++) if (items[lm].levelRefPath) levelMatchCount++;
+
     project.lastMixSplitScript = {
       ps1Path: normalizeSlashes(ps1Path),
       batPath: normalizeSlashes(batPath),
@@ -2512,7 +2734,8 @@
       outputDir: normalizeSlashes(outputDir),
       planPath: planResult.jsonPath,
       createdAt: new Date().toISOString(),
-      itemCount: items.length
+      itemCount: items.length,
+      levelMatchCount: levelMatchCount
     };
     project.updatedAt = new Date().toISOString();
     saveProject(project);
@@ -2522,7 +2745,8 @@
       logPath: normalizeSlashes(logPath),
       outputDir: normalizeSlashes(outputDir),
       planPath: planResult.jsonPath,
-      itemCount: items.length
+      itemCount: items.length,
+      levelMatchCount: levelMatchCount
     };
   }
 
@@ -2642,7 +2866,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.4.5",
+      appVersion: "1.1.5",
       projectId: project.projectId,
       projectName: project.projectName,
       checkedAt: new Date().toISOString(),
@@ -2811,7 +3035,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.4.5",
+      appVersion: "1.1.5",
       projectId: project.projectId,
       projectName: project.projectName,
       checkedAt: new Date().toISOString(),
@@ -2829,7 +3053,7 @@
     modules.fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2), "utf8");
     project.lastAutoAttachTakes = { csvPath: normalizeSlashes(csvPath), jsonPath: normalizeSlashes(jsonPath), attached: attached, found: found, missing: missing, checkedAt: report.checkedAt };
     project.updatedAt = new Date().toISOString();
-    project.appVersion = "1.4.0";
+    project.appVersion = "1.1.0";
     saveProject(project);
     return { found: found, attached: attached, missing: missing, missingNames: missingNames, csvPath: normalizeSlashes(csvPath), jsonPath: normalizeSlashes(jsonPath) };
   }
@@ -2917,7 +3141,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.4.5",
+      appVersion: "1.1.5",
       projectId: project.projectId,
       projectName: project.projectName,
       checkedAt: new Date().toISOString(),
@@ -3032,7 +3256,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.4.5",
+      appVersion: "1.1.5",
       checkedAt: new Date().toISOString(),
       packageRoot: normalizeSlashes(packageRoot),
       projectJsonExists: true,
@@ -3303,7 +3527,8 @@
       clips.push({
         name: lc.name || null,
         startSeconds: typeof lc.startSeconds === "number" ? lc.startSeconds : 0,
-        durationSeconds: typeof lc.durationSeconds === "number" ? lc.durationSeconds : 0
+        durationSeconds: typeof lc.durationSeconds === "number" ? lc.durationSeconds : 0,
+        filePath: (lc.filePath && String(lc.filePath).trim()) ? normalizeSlashes(String(lc.filePath).trim()) : null
       });
     }
     clips.sort(function (a, b) { return a.startSeconds - b.startSeconds; });
@@ -3358,6 +3583,7 @@
         recordEnd: Number((startS + durS).toFixed(3)),
         mixStart: Number(startS.toFixed(3)),
         mixEnd: Number((startS + durS).toFixed(3)),
+        liveFilePath: clip.filePath || null,
         linkedAt: new Date().toISOString(),
         matchMode: mode,
         sourceKind: "live_recording",
@@ -3406,6 +3632,7 @@
       recordEnd: Number((startS + durS).toFixed(3)),
       mixStart: Number(startS.toFixed(3)),
       mixEnd: Number((startS + durS).toFixed(3)),
+      liveFilePath: (clip.filePath && String(clip.filePath).trim()) ? normalizeSlashes(String(clip.filePath).trim()) : null,
       linkedAt: new Date().toISOString(),
       matchMode: "manual",
       sourceKind: "live_recording",
@@ -3541,7 +3768,7 @@
     var plan = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.4.5",
+      appVersion: "1.1.5",
       createdAt: new Date().toISOString(),
       projectId: project.projectId,
       projectName: project.projectName,
@@ -3656,7 +3883,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.4.5",
+      appVersion: "1.1.5",
       checkedAt: new Date().toISOString(),
       projectRootPath: normalizeSlashes(project.projectRootPath),
       planPath: normalizeSlashes(planPath),
