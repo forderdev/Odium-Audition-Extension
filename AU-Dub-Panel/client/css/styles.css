@@ -99,12 +99,12 @@ b{ color:var(--txt); font-weight:650; }
    GİRİŞ EKRANI
    ============================================================ */
 .loginGate{
-  min-height:100dvh; display:flex; align-items:center; justify-content:center;
+  min-height:100vh; min-height:100dvh; display:flex; align-items:center; justify-content:center;
   padding:24px 18px;
   background:radial-gradient(700px 360px at 50% 0%, rgba(205,168,90,.06), transparent 70%);
 }
 .loginCard{
-  width:min(100%, 352px);
+  width:100%; max-width:352px;
   background:linear-gradient(180deg, var(--surface-2), var(--surface));
   border:1px solid var(--line-2); border-radius:var(--r-lg);
   padding:26px 24px 20px;

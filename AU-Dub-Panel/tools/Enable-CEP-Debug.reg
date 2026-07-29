@@ -3,6 +3,12 @@ Windows Registry Editor Version 5.00
 ; AU Dub Panel / Odium Studio - CEP debug modu (imzasiz uzanti yukleme izni)
 ; Cift tikla -> "Evet" -> Audition'i tamamen kapatip yeniden ac.
 
+[HKEY_CURRENT_USER\Software\Adobe\CSXS.7]
+"PlayerDebugMode"="1"
+
+[HKEY_CURRENT_USER\Software\Adobe\CSXS.8]
+"PlayerDebugMode"="1"
+
 [HKEY_CURRENT_USER\Software\Adobe\CSXS.9]
 "PlayerDebugMode"="1"
 
@@ -16,4 +22,10 @@ Windows Registry Editor Version 5.00
 "PlayerDebugMode"="1"
 
 [HKEY_CURRENT_USER\Software\Adobe\CSXS.13]
+"PlayerDebugMode"="1"
+
+[HKEY_CURRENT_USER\Software\Adobe\CSXS.14]
+"PlayerDebugMode"="1"
+
+[HKEY_CURRENT_USER\Software\Adobe\CSXS.15]
 "PlayerDebugMode"="1"

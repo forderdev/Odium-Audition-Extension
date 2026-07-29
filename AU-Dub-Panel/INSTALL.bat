@@ -26,7 +26,7 @@ robocopy "%SRC%client" "%DEST%\client" /E /PURGE /NFL /NDL /NJH /NJS /NP >nul
 robocopy "%SRC%jsx"    "%DEST%\jsx"    /E /PURGE /NFL /NDL /NJH /NJS /NP >nul
 
 echo CEP debug modu aciliyor (imzasiz uzanti izni)...
-for %%V in (8 9 10 11 12 13) do (
+for %%V in (7 8 9 10 11 12 13 14 15) do (
   reg add "HKCU\Software\Adobe\CSXS.%%V" /v PlayerDebugMode /t REG_SZ /d 1 /f >nul 2>&1
 )
 

@@ -1,4 +1,4 @@
-# AU Dub Panel v1.1.0
+# AU Dub Panel v1.2.0
 
 Adobe Audition için oyun dublaj workflow paneli. İki rol için tasarlandı: **Seslendirme Sanatçısı** ve **Mixçi**. Panel açılınca tek bir rol seçimi sunar; her rol sadece kendi 3 adımını görür. Tüm eski/ileri araçlar "Gelişmiş / Tam Panel" katlanır bölümünde durur.
 
@@ -84,13 +84,13 @@ Debug modu olmadan, herhangi bir makinede kurulabilen imzalı paket için:
 Elle yapmak istersen (PowerShell):
 
 ```powershell
-9..13 | ForEach-Object {
+7..15 | ForEach-Object {
   New-Item -Path "HKCU:\Software\Adobe\CSXS.$_" -Force | Out-Null
   Set-ItemProperty -Path "HKCU:\Software\Adobe\CSXS.$_" -Name PlayerDebugMode -Value "1"
 }
 ```
 
-Not: `PlayerDebugMode` değeri **string ("1")** olmalı (DWORD değil). Doğru CSXS numarası Audition sürümüne göre değişir; .bat hepsini (9–13) yazdığı için sorun olmaz.
+Not: `PlayerDebugMode` değeri **string ("1")** olmalı (DWORD değil). Doğru CSXS numarası Audition sürümüne göre değişir; .bat desteklenen aralığı (7–15) yazdığı için sorun olmaz.
 
 **Gerçek dağıtım (debug modu gerektirmez):** Uzantıyı `ZXPSignCmd` ile (kendi imzalı sertifika yeter) `.zxp` olarak imzalayıp paketle; kullanıcı bunu bir ZXP yükleyiciyle (ör. Anastasiy's Extension Manager / ZXPInstaller / Exman) kurar. İmzalı .zxp her makinede debug modu olmadan yüklenir.
 
@@ -115,6 +115,13 @@ Not: `PlayerDebugMode` değeri **string ("1")** olmalı (DWORD değil). Doğru C
 4. `Mix Dosyasını Ayır` butonuna basın.
 5. `Ayrılanları Doğrula ve Take Yap` butonuna basın.
 6. Sonrasında normal `Export Plan Kaydet → FFmpeg Export Çalıştır → Export Sonucu Doğrula` akışını çalıştırın.
+
+## v1.2.0
+
+- Audition 2021'in CEP 10 çalışma zamanında panelin yüklenmesini engelleyen manifest uyumsuzluğu giderildi.
+- Tek manifest ile Audition 2021 ve sonraki sürümler desteklenir (`ExtensionManifest 7.0`, minimum `CSXS 7.0`).
+- Installer ve manuel kurulum yardımcılarının CEP debug anahtarları CSXS 7–15 aralığına genişletildi.
+- Chromium 74 için giriş ekranı yükseklik ve genişlik fallback'leri eklendi.
 
 ## v0.9.0
 
@@ -172,7 +179,7 @@ Not: `PlayerDebugMode` değeri **string ("1")** olmalı (DWORD değil). Doğru C
 - **GitHub uzaktan güncelleme bağlandı.** `UPDATE_MANIFEST_URL` = `https://raw.githubusercontent.com/forderdev/Odium-Audition-Extension/main/version.json`. Canlı manifest repo kökündeki `version.json`; `setupUrl` Releases'in son sürümüne sabit link (`releases/latest/download/OdiumStudioSetup.exe`).
 
 ### Yeni sürüm yayınlama (her güncellemede)
-1. Kodu değiştir. Sürümü **5 yerde** artır: `CSXS/manifest.xml`, `client/index.html` (ver), `client/js/app.js` (`CURRENT_VERSION`), `installer/OdiumStudio.iss` (`AppVersion`).
+1. Kodu değiştir. Sürümü `CSXS/manifest.xml`, `client/index.html`, `client/js/app.js`, `installer/OdiumStudio.iss`, `version.json` ve `installer/version.json` içinde artır.
 2. Inno Setup ile derle (F9) → `dist/OdiumStudioSetup.exe`.
 3. GitHub'da **yeni Release** oluştur (tag: vX.Y.Z), asset olarak `OdiumStudioSetup.exe` yükle (isim birebir).
 4. Kökteki `version.json`'da `version`'ı yeni sürüme çıkar (gerekirse `notes`), commit + push (main).

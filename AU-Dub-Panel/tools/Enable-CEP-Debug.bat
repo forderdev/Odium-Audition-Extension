@@ -5,9 +5,9 @@ REM  Imzasiz uzantilarin yuklenmesine izin verir.
 REM  Cift tikla, sonra Audition'i TAMAMEN kapatip yeniden ac.
 REM  (Yonetici gerekmez; sadece HKCU yazar.)
 REM ============================================================
-echo CEP PlayerDebugMode aciliyor (CSXS 9-13)...
+echo CEP PlayerDebugMode aciliyor (CSXS 7-15)...
 
-for %%V in (9 10 11 12 13) do (
+for %%V in (7 8 9 10 11 12 13 14 15) do (
   reg add "HKCU\Software\Adobe\CSXS.%%V" /v PlayerDebugMode /t REG_SZ /d 1 /f >nul 2>&1
   reg add "HKCU\Software\Adobe\CSXS.%%V" /v LogLevel /t REG_SZ /d 1 /f >nul 2>&1
 )
