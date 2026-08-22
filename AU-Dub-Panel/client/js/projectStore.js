@@ -1,7 +1,17 @@
 (function (global) {
   (global.__odiumAuthShards = global.__odiumAuthShards || []).push({ order: 10, shift: 9, u: [120, 109], p: [120, 131] });
 
+  var APP_VERSION = "1.13";
   var AUDIO_EXTENSIONS = ["wav", "wave", "bwf", "mp3", "ogg", "oga", "flac", "aif", "aiff", "aifc", "m4a", "aac", "w64"];
+  var DEFAULT_RECORDING_HEAD_TRIM_ENABLED = true;
+  var DEFAULT_RECORDING_HEAD_TRIM_MODE = "auto";
+  var DEFAULT_RECORDING_HEAD_TRIM_MS = 250;
+  var MAX_RECORDING_HEAD_TRIM_MS = 1000;
+  var AUTO_HEAD_TRIM_MIN_USEFUL_SECONDS = 0.18;
+  var AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS = 0.25;
+  var AUTO_HEAD_TRIM_MAX_SECONDS = 1.2;
+  var AUTO_HEAD_TRIM_FADE_SECONDS = 0.01;
+  var AUTO_HEAD_TRIM_FILTER = "silenceremove=start_periods=1:start_duration=0.12:start_threshold=-40dB:start_silence=0.08:detection=rms:window=0.02";
 
   var EXPORT_PRESETS = {
     game_wav_48k_24_mono: {
@@ -736,12 +746,15 @@
     return {
       schemaVersion: 2,
       app: "AU Dub Panel",
-      appVersion: "1.1.5",
+      appVersion: APP_VERSION,
       projectId: uid("project"),
       projectName: options.projectName || "Game_Dub_Project",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       gapSeconds: gapSeconds,
+      recordingHeadTrimEnabled: normalizeRecordingHeadTrimEnabled(options.recordingHeadTrimEnabled, DEFAULT_RECORDING_HEAD_TRIM_ENABLED),
+      recordingHeadTrimMode: normalizeRecordingHeadTrimMode(options.recordingHeadTrimMode, DEFAULT_RECORDING_HEAD_TRIM_MODE),
+      recordingHeadTrimMs: normalizeRecordingHeadTrimMs(options.recordingHeadTrimMs, DEFAULT_RECORDING_HEAD_TRIM_MS),
       projectRootPath: getProjectRootPath(files),
       folders: {
         original: "Audio/Original",
@@ -771,8 +784,46 @@
     var dirs = [".audub", "Audio", "Audio/Original", "Audio/Takes", "Audio/Mix", "Audio/Exports"];
     for (var i = 0; i < dirs.length; i++) {
       var dirPath = modules.path.join(rootPath, dirs[i]);
-      if (!modules.fs.existsSync(dirPath)) modules.fs.mkdirSync(dirPath, { recursive: true });
+      try {
+        if (!modules.fs.existsSync(dirPath)) modules.fs.mkdirSync(dirPath, { recursive: true });
+      } catch (e) {
+        var code = e && e.code ? " [" + e.code + "]" : "";
+        throw new Error("Proje klasörüne yazılamıyor" + code + ": " + dirPath + ". Paketi ZIP içinden çalıştırmayın; tamamen çıkarıp yazılabilir bir klasöre taşıyın.");
+      }
     }
+  }
+
+  // Bir yol, verilen kökün altında mı? (Paket taşındığında gönderenin yolları dışarıda kalır.)
+  function isPathInsideRoot(value, rootPath) {
+    if (!value || !rootPath) return false;
+    var v = normalizeSlashes(value).toLowerCase().replace(/\/+$/, "");
+    var r = normalizeSlashes(rootPath).toLowerCase().replace(/\/+$/, "");
+    return v === r || v.indexOf(r + "/") === 0;
+  }
+
+  // Paket taşındığında project.json içindeki eski makineye ait üretilmiş çıktı yollarını
+  // (split script/plan, export klasörü) düşürür. Böylece yeniden üretilirler.
+  function dropStalePathsOutsideRoot(project, rootPath) {
+    var dropped = [];
+    if (project.lastMixSplitScript && !isPathInsideRoot(project.lastMixSplitScript.ps1Path, rootPath)) {
+      delete project.lastMixSplitScript;
+      dropped.push("lastMixSplitScript");
+    }
+    if (project.lastMixSplitPlan && !isPathInsideRoot(project.lastMixSplitPlan.mixFileAbsolutePath, rootPath)) {
+      // Plan'ın kendisi (kesim sınırları) değerli; sadece geçersiz mix dosya yolunu düşür.
+      delete project.lastMixSplitPlan.mixFileAbsolutePath;
+      dropped.push("lastMixSplitPlan.mixFileAbsolutePath");
+    }
+    if (project.exportOutputDir && !isPathInsideRoot(project.exportOutputDir, rootPath)) {
+      project.exportOutputDir = "";
+      dropped.push("exportOutputDir");
+    }
+    if (project.lastExportScript && !isPathInsideRoot(project.lastExportScript.ps1Path, rootPath)) {
+      delete project.lastExportScript;
+      dropped.push("lastExportScript");
+    }
+    project.stalePathsDropped = dropped;
+    return dropped;
   }
 
   function loadProjectFromFile(file) {
@@ -787,6 +838,7 @@
             return;
           }
           project.updatedAt = project.updatedAt || new Date().toISOString();
+          normalizeRecordingHeadTrimSettings(project);
           project.exportPreset = project.exportPreset || createExportPreset("game_wav_48k_24_mono");
           project.availableExportPresets = project.availableExportPresets || getAllExportPresets();
           project.exportPolicy = project.exportPolicy || {
@@ -831,12 +883,15 @@
     return {
       schemaVersion: 2,
       app: "AU Dub Panel",
-      appVersion: "1.1.5",
+      appVersion: APP_VERSION,
       projectId: uid("project"),
       projectName: options.projectName || "Game_Dub_Project",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       gapSeconds: gapSeconds,
+      recordingHeadTrimEnabled: normalizeRecordingHeadTrimEnabled(options.recordingHeadTrimEnabled, DEFAULT_RECORDING_HEAD_TRIM_ENABLED),
+      recordingHeadTrimMode: normalizeRecordingHeadTrimMode(options.recordingHeadTrimMode, DEFAULT_RECORDING_HEAD_TRIM_MODE),
+      recordingHeadTrimMs: normalizeRecordingHeadTrimMs(options.recordingHeadTrimMs, DEFAULT_RECORDING_HEAD_TRIM_MS),
       projectRootPath: projectRootPath,
       folders: { original: "Audio/Original", takes: "Audio/Takes", mix: "Audio/Mix", exports: "Audio/Exports", metadata: ".audub" },
       exportPreset: createExportPreset(options.exportPresetId),
@@ -1113,15 +1168,26 @@
     var modules = getNodeModules();
     if (!modules) throw new Error("Node.js erişimi yok (CEP --enable-nodejs).");
     if (!filePath) throw new Error("Dosya seçilmedi.");
-    var txt = modules.fs.readFileSync(filePath, "utf8");
+    var resolvedFilePath = modules.path.resolve(filePath);
+    var txt = modules.fs.readFileSync(resolvedFilePath, "utf8");
     var project = JSON.parse(String(txt || ""));
     if (!project || !project.lines || typeof project.lines.length === "undefined") {
       throw new Error("Bu dosya geçerli bir AU Dub project.json değil.");
     }
-    // Paket başka makinede açıldıysa içindeki mutlak yollar geçersiz olabilir;
-    // yüklenen json'un konumu, göreli yolları çözmek için yedek kök olarak saklanır.
-    project.loadedFromPath = normalizeSlashes(filePath);
+    // Paket taşındığında JSON içindeki mutlak kök eski bilgisayarı gösterir. Seçilen
+    // .audub/project.json konumunu tek kaynak kabul edip tüm yeni çıktıları buraya yaz.
+    var metadataDir = modules.path.dirname(resolvedFilePath);
+    var loadedRoot = modules.path.basename(metadataDir).toLowerCase() === ".audub"
+      ? modules.path.dirname(metadataDir)
+      : metadataDir;
+    project.loadedFromPath = normalizeSlashes(resolvedFilePath);
+    project.projectRootPath = normalizeSlashes(loadedRoot);
+    project.packageRootPath = normalizeSlashes(loadedRoot);
+    // Gönderenin makinesinde üretilmiş split/export çıktı yolları burada geçersiz.
+    // Temizlenmezse yeniden kullanılıp erişilemeyen köke yazmaya çalışırlar (EPERM).
+    dropStalePathsOutsideRoot(project, project.projectRootPath);
     project.updatedAt = project.updatedAt || new Date().toISOString();
+    normalizeRecordingHeadTrimSettings(project);
     project.exportPreset = project.exportPreset || createExportPreset("game_wav_48k_24_mono");
     project.availableExportPresets = project.availableExportPresets || getAllExportPresets();
     project.exportPolicy = project.exportPolicy || {
@@ -1134,6 +1200,83 @@
 
   function safeFileName(name) {
     return String(name || "audio.wav").replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
+  }
+
+  function normalizeRecordingHeadTrimMs(value, fallback) {
+    var number = Number(value);
+    if (!isFinite(number)) number = Number(fallback || 0);
+    if (!isFinite(number)) number = 0;
+    return Math.max(0, Math.min(MAX_RECORDING_HEAD_TRIM_MS, Math.round(number)));
+  }
+
+  function normalizeRecordingHeadTrimSanitizedMs(value) {
+    var number = Number(value);
+    if (!isFinite(number)) number = 0;
+    return Math.max(0, Math.min(Math.round(AUTO_HEAD_TRIM_MAX_SECONDS * 1000), Math.round(number)));
+  }
+
+  function normalizeRecordingHeadTrimEnabled(value, fallback) {
+    if (typeof value === "undefined" || value === null || value === "") return fallback !== false;
+    if (typeof value === "string") {
+      var text = value.toLowerCase();
+      return text !== "false" && text !== "0" && text !== "off";
+    }
+    return value !== false && value !== 0;
+  }
+
+  function normalizeRecordingHeadTrimMode(value, fallback) {
+    var mode = String(value || fallback || DEFAULT_RECORDING_HEAD_TRIM_MODE).toLowerCase();
+    return mode === "fixed" ? "fixed" : "auto";
+  }
+
+  function normalizeRecordingHeadTrimSettings(project, source) {
+    source = source || project || {};
+    project.recordingHeadTrimEnabled = normalizeRecordingHeadTrimEnabled(source.recordingHeadTrimEnabled, DEFAULT_RECORDING_HEAD_TRIM_ENABLED);
+    project.recordingHeadTrimMode = normalizeRecordingHeadTrimMode(source.recordingHeadTrimMode, DEFAULT_RECORDING_HEAD_TRIM_MODE);
+    project.recordingHeadTrimMs = normalizeRecordingHeadTrimMs(source.recordingHeadTrimMs, DEFAULT_RECORDING_HEAD_TRIM_MS);
+    return project;
+  }
+
+  function recordingHeadTrimEligible(take) {
+    var sourceKind = String(take && take.sourceKind || "").toLowerCase();
+    var matchMode = String(take && take.matchMode || "").toLowerCase();
+    var isAlreadySplit = sourceKind.indexOf("mix_split") === 0;
+    var isLive = sourceKind === "live_recording" ||
+      ["position", "order", "manual", "session", "mixer_positions", "mixer_two_track"].indexOf(matchMode) >= 0;
+    return isLive && !isAlreadySplit;
+  }
+
+  function recordingMixBounds(take, requestedTrimMs, enabled, mode) {
+    var rawStart = take && typeof take.mixStart === "number" ? take.mixStart : 0;
+    var rawEnd = take && typeof take.mixEnd === "number" ? take.mixEnd : rawStart;
+    var duration = Number(Math.max(0, rawEnd - rawStart).toFixed(3));
+    var requested = normalizeRecordingHeadTrimMs(requestedTrimMs, 0);
+    var trimEnabled = normalizeRecordingHeadTrimEnabled(enabled, DEFAULT_RECORDING_HEAD_TRIM_ENABLED);
+    var trimMode = normalizeRecordingHeadTrimMode(mode, DEFAULT_RECORDING_HEAD_TRIM_MODE);
+    var eligible = recordingHeadTrimEligible(take);
+    var applied = 0;
+    var sanitized = normalizeRecordingHeadTrimSanitizedMs(take && take.headTrimSanitizedMs);
+
+    if (trimEnabled && eligible && sanitized > 0 && duration > AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS) {
+      var sanitizedMax = Math.max(0, Math.round((duration - AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS) * 1000));
+      applied = Math.max(0, Math.min(sanitized, sanitizedMax));
+    } else if (trimEnabled && trimMode === "fixed" && eligible && duration > 0.05 && requested > 0) {
+      var maxByFraction = Math.round(duration * 250); // clip süresinin en fazla %25'i
+      var maxByRemainingAudio = Math.max(0, Math.round((duration - 0.05) * 1000));
+      applied = Math.max(0, Math.min(requested, maxByFraction, maxByRemainingAudio));
+    }
+
+    var start = Number((rawStart + applied / 1000).toFixed(3));
+    var end = Number(rawEnd.toFixed(3));
+    return {
+      start: start,
+      end: end,
+      duration: Number(Math.max(0, end - start).toFixed(3)),
+      requestedMs: requested,
+      appliedMs: applied,
+      eligible: eligible,
+      autoEligible: trimEnabled && trimMode === "auto" && eligible && duration > 0.05 && applied === 0
+    };
   }
 
   function baseNameNoExt(name) {
@@ -1281,6 +1424,20 @@
     return out;
   }
 
+  function resolveTakeFilePath(project, take, modules) {
+    if (!take) return "";
+    var candidates = [];
+    if (take.liveFilePath) candidates.push(take.liveFilePath);
+    if (take.fileAbsolutePath) candidates.push(take.fileAbsolutePath);
+    if (project && project.projectRootPath && take.fileRelativePath) {
+      candidates.push(modules.path.join(project.projectRootPath, take.fileRelativePath));
+    }
+    for (var i = 0; i < candidates.length; i++) {
+      try { if (modules.fs.existsSync(candidates[i])) return candidates[i]; } catch (ignoreExists) {}
+    }
+    return candidates.length ? candidates[0] : "";
+  }
+
   function packageProject(project, options) {
     var modules = getNodeModules();
     if (!modules) throw new Error("Node.js dosya yazma erişimi yok. Paketleme için CEP içinde --enable-nodejs çalışmalı.");
@@ -1302,7 +1459,7 @@
     ensureProjectFolders(packageRoot, modules);
 
     var packaged = clone(project);
-    packaged.appVersion = "1.1.0";
+    packaged.appVersion = APP_VERSION;
     packaged.packageCreatedAt = new Date().toISOString();
     packaged.packageRootPath = packageRoot;
     packaged.projectRootPath = packageRoot;
@@ -1349,10 +1506,7 @@
       if (!takeLine.takes || !takeLine.takes.length) continue;
       for (var tj = 0; tj < takeLine.takes.length; tj++) {
         var take = takeLine.takes[tj];
-        var takeSrc = take.fileAbsolutePath;
-        if (!takeSrc && project.projectRootPath && take.fileRelativePath) {
-          takeSrc = modules.path.join(project.projectRootPath, take.fileRelativePath);
-        }
+        var takeSrc = resolveTakeFilePath(project, take, modules);
         var takeOutName = uniqueName(take.fileName || (takeLine.lineId + "_take.wav"), usedTakeNames);
         var takeDest = modules.path.join(packageRoot, "Audio", "Takes", takeOutName);
         try {
@@ -1444,9 +1598,14 @@
             var mp = mediaFiles[mf].path;
             var mpNorm = normalizeSlashes(mp).toLowerCase();
             if (mpNorm.indexOf(pkgPrefix) === 0) continue;          // paketin kendi içi
-            if (mpNorm.indexOf("_au_dub_package_") >= 0) continue;  // eski paketler
             var relMedia = normalizeSlashes(modules.path.relative(sesxDir, mp));
             var relLower = relMedia.toLowerCase();
+            var relParts = relLower.split("/");
+            var insideNestedPackage = false;
+            for (var rp = 0; rp < relParts.length - 1; rp++) {
+              if (relParts[rp].indexOf("_au_dub_package_") >= 0) { insideNestedPackage = true; break; }
+            }
+            if (insideNestedPackage) continue;                      // yalnizca ic ice eski paketler
             // Paketin kendi rezerve klasörleriyle çakışmayı önle.
             if (relLower.indexOf("audio/") === 0 || relLower.indexOf(".audub/") === 0) continue;
             var mDest = modules.path.join(packageRoot, relMedia);
@@ -1483,10 +1642,12 @@
 
     var packageVerify = null;
     var packageVerifyError = null;
-    try {
-      packageVerify = verifyPackageProject(packageRoot);
-    } catch (verifyErr) {
-      packageVerifyError = verifyErr && verifyErr.message ? verifyErr.message : String(verifyErr);
+    if (!options.skipVerify) {
+      try {
+        packageVerify = verifyPackageProject(packageRoot);
+      } catch (verifyErr) {
+        packageVerifyError = verifyErr && verifyErr.message ? verifyErr.message : String(verifyErr);
+      }
     }
 
     return {
@@ -1513,6 +1674,770 @@
       packageVerify: packageVerify,
       packageVerifyError: packageVerifyError
     };
+  }
+
+  function emitPackageProgress(options, info) {
+    if (!options || typeof options.onProgress !== "function") return;
+    try { options.onProgress(info); } catch (ignoreProgress) {}
+  }
+
+  function mapWithConcurrency(items, concurrency, worker) {
+    return new Promise(function (resolve, reject) {
+      var list = items || [];
+      if (!list.length) { resolve([]); return; }
+      var limit = Math.max(1, Math.floor(Number(concurrency || 1)));
+      var results = new Array(list.length);
+      var nextIndex = 0;
+      var active = 0;
+      var completed = 0;
+      var failed = false;
+
+      function launch() {
+        if (failed) return;
+        if (completed >= list.length) { resolve(results); return; }
+        while (active < limit && nextIndex < list.length) {
+          (function (index) {
+            active++;
+            Promise.resolve().then(function () {
+              return worker(list[index], index);
+            }).then(function (value) {
+              active--;
+              completed++;
+              results[index] = value;
+              launch();
+            }).catch(function (error) {
+              if (failed) return;
+              failed = true;
+              reject(error);
+            });
+          })(nextIndex++);
+        }
+      }
+
+      launch();
+    });
+  }
+
+  function runProcessCaptured(executable, args, options) {
+    options = options || {};
+    if (typeof options.runProcess === "function") {
+      return new Promise(function (resolve, reject) {
+        var completed = false;
+        function done(error, result) {
+          if (completed) return;
+          completed = true;
+          if (error) reject(error); else resolve(result || { status: 0, stdout: "", stderr: "" });
+        }
+        try {
+          var returned = options.runProcess(executable, args, done);
+          if (returned && typeof returned.then === "function") returned.then(function (value) { done(null, value); }, done);
+        } catch (error) { done(error); }
+      });
+    }
+
+    return new Promise(function (resolve, reject) {
+      var cp = getChildProcessModule();
+      if (!cp) { reject(new Error("child_process erişimi yok.")); return; }
+      var child;
+      try {
+        child = cp.spawn(executable, args, { windowsHide: true });
+      } catch (spawnError) { reject(spawnError); return; }
+
+      var stdout = "";
+      var stderr = "";
+      var settled = false;
+      var timeoutMs = Math.max(1000, Number(options.processTimeoutMs || 120000));
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        try { child.kill(); } catch (ignoreKill) {}
+        reject(new Error("İşlem zaman aşımına uğradı: " + executable));
+      }, timeoutMs);
+
+      if (child.stdout) child.stdout.on("data", function (data) { stdout += String(data); });
+      if (child.stderr) child.stderr.on("data", function (data) { stderr += String(data); });
+      child.on("error", function (error) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.on("close", function (code) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve({ status: code, stdout: stdout, stderr: stderr });
+      });
+    });
+  }
+
+  function copyFileAsync(modules, source, destination, options) {
+    return new Promise(function (resolve, reject) {
+      var copyFile = options && typeof options.copyFile === "function" ? options.copyFile : modules.fs.copyFile.bind(modules.fs);
+      try {
+        copyFile(source, destination, function (error) {
+          if (error) reject(error); else resolve();
+        });
+      } catch (error) { reject(error); }
+    });
+  }
+
+  function ensureDirectoryAsync(modules, directory) {
+    return new Promise(function (resolve, reject) {
+      modules.fs.mkdir(directory, { recursive: true }, function (error) {
+        if (error && error.code !== "EEXIST") reject(error); else resolve();
+      });
+    });
+  }
+
+  function walkSessionAudioFiles(rootPath, modules) {
+    var files = [];
+    var rootNormalized = normalizeSlashes(rootPath).toLowerCase();
+
+    function visit(directory) {
+      var entries;
+      try { entries = modules.fs.readdirSync(directory); } catch (readError) { return; }
+      for (var i = 0; i < entries.length; i++) {
+        var fullPath = modules.path.join(directory, entries[i]);
+        var stat;
+        try { stat = modules.fs.statSync(fullPath); } catch (statError) { continue; }
+        if (stat.isDirectory()) {
+          var nameLower = String(entries[i]).toLowerCase();
+          var fullLower = normalizeSlashes(fullPath).toLowerCase();
+          var relative = normalizeSlashes(modules.path.relative(rootPath, fullPath)).toLowerCase();
+          if (nameLower.indexOf("_au_dub_package_") >= 0) continue;
+          if (relative === ".audub" || relative.indexOf(".audub/") === 0) continue;
+          if (relative === "audio" || relative.indexOf("audio/") === 0) continue;
+          if (fullLower === rootNormalized) continue;
+          visit(fullPath);
+        } else if (AUDIO_EXTENSIONS.indexOf(fileExtension(entries[i])) >= 0) {
+          files.push({ path: fullPath, name: entries[i], size: stat.size, mtimeMs: stat.mtimeMs || 0 });
+        }
+      }
+    }
+
+    visit(rootPath);
+    return files;
+  }
+
+  function parseVolumeStatsResult(result) {
+    var text = String(result && result.stderr || "") + String(result && result.stdout || "");
+    var meanMatch = /mean_volume:\s*(-?[\d.]+)\s*dB/.exec(text);
+    var maxMatch = /max_volume:\s*(-?[\d.]+)\s*dB/.exec(text);
+    if (!meanMatch) return null;
+    return { mean: Number(meanMatch[1]), max: maxMatch ? Number(maxMatch[1]) : null };
+  }
+
+  function parseProgressDurationSeconds(result) {
+    var text = String(result && result.stdout || "") + "\n" + String(result && result.stderr || "");
+    var matches = text.match(/out_time_us=(\d+)/g);
+    if (!matches || !matches.length) return null;
+    var value = Number(matches[matches.length - 1].split("=")[1]);
+    return isFinite(value) && value >= 0 ? value / 1000000 : null;
+  }
+
+  function acceptedAutoHeadTrimSeconds(duration, trimmedDuration) {
+    if (!(duration > 0) || !(trimmedDuration >= 0)) return 0;
+    var candidate = Number((duration - trimmedDuration).toFixed(3));
+    var maxTrim = Math.min(AUTO_HEAD_TRIM_MAX_SECONDS, Math.max(0, duration - AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS));
+    if (candidate < AUTO_HEAD_TRIM_MIN_USEFUL_SECONDS || candidate > maxTrim || trimmedDuration < AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS) return 0;
+    return candidate;
+  }
+
+  function fixedHeadTrimSeconds(duration, requestedMs) {
+    var requested = normalizeRecordingHeadTrimMs(requestedMs, 0) / 1000;
+    var maxByFraction = duration * 0.25;
+    var maxByRemaining = Math.max(0, duration - AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS);
+    return Number(Math.max(0, Math.min(requested, maxByFraction, maxByRemaining)).toFixed(3));
+  }
+
+  // Mixci paketinde klavye sesini kaynak dosyayi kisaltmadan sessize alir. Dosya suresi
+  // degismedigi icin .sesx clip konumlari aynen kalir; final split metadata'daki ms'yi keser.
+  function sanitizePackagedTakesAsync(project, result, ffmpegExe, modules, options) {
+    var output = { sanitizedTakes: 0, sanitizedSourceFiles: 0, unchanged: 0, sanitizedSources: {}, warnings: [] };
+    var enabled = normalizeRecordingHeadTrimEnabled(project.recordingHeadTrimEnabled, DEFAULT_RECORDING_HEAD_TRIM_ENABLED);
+    var mode = normalizeRecordingHeadTrimMode(project.recordingHeadTrimMode, DEFAULT_RECORDING_HEAD_TRIM_MODE);
+    var requestedMs = normalizeRecordingHeadTrimMs(project.recordingHeadTrimMs, DEFAULT_RECORDING_HEAD_TRIM_MS);
+    if (!enabled) return Promise.resolve(output);
+
+    var packagedProject;
+    try { packagedProject = JSON.parse(modules.fs.readFileSync(result.jsonPath, "utf8")); }
+    catch (readError) {
+      output.warnings.push("Paket take listesi okunamadi; tus sesi temizligi uygulanamadi: " + readError.message);
+      return Promise.resolve(output);
+    }
+
+    var packagedLinesById = {};
+    for (var pi = 0; pi < packagedProject.lines.length; pi++) packagedLinesById[packagedProject.lines[pi].lineId] = packagedProject.lines[pi];
+    var groups = {};
+    for (var i = 0; i < project.lines.length; i++) {
+      var sourceLine = project.lines[i];
+      var sourceTake = getSelectedTake(sourceLine);
+      if (!sourceTake || !recordingHeadTrimEligible(sourceTake)) continue;
+      var sourcePath = resolveTakeFilePath(project, sourceTake, modules);
+      var duration = Number(sourceTake.duration);
+      if (!sourcePath || !modules.fs.existsSync(sourcePath) || !(duration > AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS)) continue;
+
+      var packagedLine = packagedLinesById[sourceLine.lineId];
+      if (!packagedLine || !packagedLine.takes) continue;
+      var packagedTake = null;
+      for (var pt = 0; pt < packagedLine.takes.length; pt++) {
+        if (packagedLine.takes[pt].takeId === sourceTake.takeId) { packagedTake = packagedLine.takes[pt]; break; }
+      }
+      if (!packagedTake) continue;
+      var destination = packagedTake.fileAbsolutePath;
+      if (!destination && packagedTake.fileRelativePath) destination = modules.path.join(result.packageRoot, packagedTake.fileRelativePath);
+      if (!destination || !modules.fs.existsSync(destination)) continue;
+
+      var sourceKey = normalizeSlashes(sourcePath).toLowerCase();
+      if (!groups[sourceKey]) groups[sourceKey] = { key: sourceKey, source: sourcePath, duration: duration, destinations: [], packagedTakes: [], ambiguous: false };
+      if (Math.abs(groups[sourceKey].duration - duration) > 0.02) groups[sourceKey].ambiguous = true;
+      if (groups[sourceKey].destinations.indexOf(destination) < 0) groups[sourceKey].destinations.push(destination);
+      groups[sourceKey].packagedTakes.push(packagedTake);
+    }
+
+    var tasks = Object.keys(groups).map(function (key) { return groups[key]; });
+    if (!tasks.length) return Promise.resolve(output);
+    var completed = 0;
+    emitPackageProgress(options, { phase: "sanitize_takes", completed: 0, total: tasks.length });
+
+    return runProcessCaptured(ffmpegExe, ["-version"], options).then(function (probe) {
+      if (!probe || probe.status !== 0) throw new Error("FFmpeg calistirilamadi.");
+      return mapWithConcurrency(tasks, Number(options.mediaConcurrency || 4), function (task, taskIndex) {
+        var analysisTemp = modules.path.join(result.packageRoot, ".audub", "head-trim-analysis-" + taskIndex + "-" + Date.now() + ".wav");
+        var sanitizedTemp = modules.path.join(result.packageRoot, ".audub", "sanitize-take-" + taskIndex + "-" + Date.now() + ".wav");
+
+        function cleanup() {
+          try { if (modules.fs.existsSync(analysisTemp)) modules.fs.unlinkSync(analysisTemp); } catch (ignoreAnalysis) {}
+          try { if (modules.fs.existsSync(sanitizedTemp)) modules.fs.unlinkSync(sanitizedTemp); } catch (ignoreSanitized) {}
+        }
+
+        if (task.ambiguous) {
+          output.warnings.push("Ayni kaynak dosya farkli clip sureleriyle kullaniliyor; guvenlik icin temizlenmedi: " + task.source);
+          output.unchanged++;
+          completed++;
+          emitPackageProgress(options, { phase: "sanitize_takes", completed: completed, total: tasks.length, sanitized: output.sanitizedTakes, path: normalizeSlashes(task.source) });
+          return Promise.resolve();
+        }
+
+        var knownMs = 0;
+        for (var kt = 0; kt < task.packagedTakes.length; kt++) knownMs = Math.max(knownMs, normalizeRecordingHeadTrimSanitizedMs(task.packagedTakes[kt].headTrimSanitizedMs));
+        var candidatePromise;
+        if (knownMs > 0) {
+          candidatePromise = Promise.resolve(Number(Math.min(knownMs / 1000, AUTO_HEAD_TRIM_MAX_SECONDS, Math.max(0, task.duration - AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS)).toFixed(3)));
+        } else if (mode === "fixed") {
+          candidatePromise = Promise.resolve(fixedHeadTrimSeconds(task.duration, requestedMs));
+        } else {
+          candidatePromise = runProcessCaptured(ffmpegExe,
+            ["-hide_banner", "-loglevel", "error", "-nostats", "-y", "-i", task.source, "-t", String(task.duration), "-af", AUTO_HEAD_TRIM_FILTER, "-c:a", "pcm_f32le", "-progress", "pipe:1", analysisTemp],
+            options).then(function (analysisResult) {
+              if (!analysisResult || analysisResult.status !== 0 || !modules.fs.existsSync(analysisTemp)) return 0;
+              var trimmedDuration = parseProgressDurationSeconds(analysisResult);
+              return acceptedAutoHeadTrimSeconds(task.duration, trimmedDuration);
+            });
+        }
+
+        return candidatePromise.then(function (candidate) {
+          try { if (modules.fs.existsSync(analysisTemp)) modules.fs.unlinkSync(analysisTemp); } catch (ignoreAnalysisDone) {}
+          if (!(candidate > 0) || (mode === "auto" && candidate < AUTO_HEAD_TRIM_MIN_USEFUL_SECONDS)) { output.unchanged++; return; }
+          var trimSeconds = String(Number(candidate.toFixed(3)));
+          var trimMilliseconds = Math.round(candidate * 1000);
+          var fadeFilter = "atrim=start=" + trimSeconds + ",asetpts=PTS-STARTPTS,adelay=" + trimMilliseconds + ":all=1,afade=t=in:st=" + trimSeconds + ":d=" + String(AUTO_HEAD_TRIM_FADE_SECONDS);
+          return runProcessCaptured(ffmpegExe,
+            ["-hide_banner", "-loglevel", "error", "-y", "-i", task.destinations[0], "-af", fadeFilter, "-c:a", "pcm_f32le", sanitizedTemp],
+            options).then(function (sanitizeResult) {
+              if (!sanitizeResult || sanitizeResult.status !== 0 || !modules.fs.existsSync(sanitizedTemp)) throw new Error("FFmpeg kodu: " + (sanitizeResult ? sanitizeResult.status : "?"));
+              return mapWithConcurrency(task.destinations, Number(options.mediaConcurrency || 4), function (destination) {
+                return copyFileAsync(modules, sanitizedTemp, destination, options);
+              }).then(function () {
+                var trimMs = trimMilliseconds;
+                var sanitizedAt = new Date().toISOString();
+                for (var takeIndex = 0; takeIndex < task.packagedTakes.length; takeIndex++) {
+                  var packagedTake = task.packagedTakes[takeIndex];
+                  packagedTake.headTrimSanitizedMs = trimMs;
+                  packagedTake.headTrimSanitizedMode = mode;
+                  packagedTake.headTrimSanitizedAt = sanitizedAt;
+                }
+                output.sanitizedTakes += task.packagedTakes.length;
+                output.sanitizedSourceFiles++;
+                var sanitizedEntry = { path: task.destinations[0], trimMs: trimMs, mode: mode };
+                output.sanitizedSources[task.key] = sanitizedEntry;
+                function addNameAlias(value) {
+                  if (!value) return;
+                  var alias = "name:" + baseNameNoExt(modules.path.basename(String(value))).toLowerCase();
+                  var existing = output.sanitizedSources[alias];
+                  if (!existing) output.sanitizedSources[alias] = sanitizedEntry;
+                  else if (existing.path !== sanitizedEntry.path) output.sanitizedSources[alias] = { ambiguous: true };
+                }
+                addNameAlias(task.source);
+                for (var aliasIndex = 0; aliasIndex < task.packagedTakes.length; aliasIndex++) {
+                  addNameAlias(task.packagedTakes[aliasIndex].originalTakeName);
+                }
+              });
+            });
+        }).catch(function (sanitizeError) {
+          output.warnings.push("Paket take tus sesi temizlenemedi, ham kopya korundu: " + task.source + " (" + sanitizeError.message + ")");
+        }).then(function () {
+          cleanup();
+          completed++;
+          emitPackageProgress(options, { phase: "sanitize_takes", completed: completed, total: tasks.length, sanitized: output.sanitizedTakes, path: normalizeSlashes(task.source) });
+        });
+      });
+    }).catch(function (probeError) {
+      output.warnings.push("Tus sesi temizligi icin FFmpeg kullanilamadi: " + probeError.message);
+    }).then(function () {
+      packagedProject.updatedAt = new Date().toISOString();
+      modules.fs.writeFileSync(result.jsonPath, JSON.stringify(packagedProject, null, 2), "utf8");
+      return output;
+    });
+  }
+
+  function buildRecordingGainMapAsync(project, ffmpegExe, modules, sesxDir, mediaFiles, options) {
+    var output = { gains: {}, warnings: [], ffmpegOk: false, lineCount: 0, fileCount: 0, resolvedByName: 0 };
+
+    return runProcessCaptured(ffmpegExe, ["-version"], options).then(function (probe) {
+      output.ffmpegOk = probe && probe.status === 0;
+      if (!output.ffmpegOk) {
+        output.warnings.push("FFmpeg çalıştırılamadı (" + ffmpegExe + "); düzey eşitleme atlandı.");
+        return output;
+      }
+
+      var mediaByBase = {};
+      for (var mediaIndex = 0; mediaIndex < mediaFiles.length; mediaIndex++) {
+        var mediaPath = mediaFiles[mediaIndex].path;
+        var base = baseNameNoExt(modules.path.basename(mediaPath)).toLowerCase();
+        if (!mediaByBase[base]) mediaByBase[base] = [];
+        mediaByBase[base].push(mediaPath);
+      }
+
+      function resolveRecordingPath(take, line) {
+        if (take.liveFilePath) {
+          try { if (modules.fs.existsSync(take.liveFilePath)) return take.liveFilePath; } catch (ignoreLivePath) {}
+        }
+        var name = take.originalTakeName || take.fileName || "";
+        if (name) {
+          var matches = mediaByBase[baseNameNoExt(String(name)).toLowerCase()];
+          if (matches && matches.length) {
+            if (matches.length > 1) output.warnings.push("Aynı adda birden çok kayıt dosyası, ilki kullanıldı: " + name);
+            output.resolvedByName++;
+            return matches[0];
+          }
+        }
+        output.warnings.push("Kayıt dosyası bulunamadı (clip adı: " + (name || "?") + "): " + (line.originalName || line.lineId));
+        return "";
+      }
+
+      var pairs = [];
+      var uniquePaths = [];
+      var seenPaths = {};
+      for (var i = 0; i < project.lines.length; i++) {
+        var line = project.lines[i];
+        var take = getSelectedTake(line);
+        if (!take) continue;
+        var recordingPath = resolveRecordingPath(take, line);
+        if (!recordingPath) continue;
+        var originalPath = resolveLevelRefPath(project, line, modules);
+        if (!originalPath) {
+          output.warnings.push("Orijinal dosya bulunamadı: " + (line.originalName || line.lineId));
+          continue;
+        }
+        pairs.push({ line: line, recordingPath: recordingPath, originalPath: originalPath });
+        [recordingPath, originalPath].forEach(function (pathValue) {
+          var key = normalizeSlashes(pathValue).toLowerCase();
+          if (!seenPaths[key]) { seenPaths[key] = true; uniquePaths.push(pathValue); }
+        });
+      }
+
+      var statsByPath = {};
+      var measureCompleted = 0;
+      emitPackageProgress(options, { phase: "measure", completed: 0, total: uniquePaths.length });
+      return mapWithConcurrency(uniquePaths, Number(options.measureConcurrency || 4), function (pathValue) {
+        return runProcessCaptured(ffmpegExe,
+          ["-hide_banner", "-nostats", "-i", pathValue, "-af", "volumedetect", "-f", "null", "NUL"],
+          options).then(function (result) {
+            statsByPath[normalizeSlashes(pathValue).toLowerCase()] = parseVolumeStatsResult(result);
+          }).catch(function () {
+            statsByPath[normalizeSlashes(pathValue).toLowerCase()] = null;
+          }).then(function () {
+            measureCompleted++;
+            emitPackageProgress(options, { phase: "measure", completed: measureCompleted, total: uniquePaths.length, path: normalizeSlashes(pathValue) });
+          });
+      }).then(function () {
+        var deltasByFile = {};
+        for (var pairIndex = 0; pairIndex < pairs.length; pairIndex++) {
+          var pair = pairs[pairIndex];
+          var originalStats = statsByPath[normalizeSlashes(pair.originalPath).toLowerCase()];
+          var recordingStats = statsByPath[normalizeSlashes(pair.recordingPath).toLowerCase()];
+          if (!originalStats || !recordingStats || recordingStats.max === null) {
+            output.warnings.push("Düzey ölçülemedi: " + (pair.line.originalName || pair.line.lineId));
+            continue;
+          }
+          var recordingKey = normalizeSlashes(pair.recordingPath).toLowerCase();
+          if (!deltasByFile[recordingKey]) deltasByFile[recordingKey] = { path: pair.recordingPath, deltas: [], recMax: recordingStats.max };
+          deltasByFile[recordingKey].deltas.push(originalStats.mean - recordingStats.mean);
+          output.lineCount++;
+        }
+
+        Object.keys(deltasByFile).forEach(function (recordingKey) {
+          var entry = deltasByFile[recordingKey];
+          var sum = entry.deltas.reduce(function (total, value) { return total + value; }, 0);
+          var target = sum / entry.deltas.length;
+          var maxBoost = -1.0 - entry.recMax;
+          var applied = Math.min(target, maxBoost);
+          output.gains[recordingKey] = {
+            path: entry.path,
+            target: Number(target.toFixed(2)),
+            applied: Number(applied.toFixed(2)),
+            clamped: applied < target - 0.01,
+            lines: entry.deltas.length
+          };
+          output.fileCount++;
+        });
+        return output;
+      });
+    }).catch(function (error) {
+      output.warnings.push("FFmpeg çalıştırılamadı (" + ffmpegExe + "): " + error.message);
+      return output;
+    });
+  }
+
+  function levelPackagedTakesAsync(project, result, levelGains, ffmpegExe, modules, options) {
+    var output = { leveled: 0, leveledSources: {}, warnings: [] };
+    if (!levelGains || !levelGains.gains || !Object.keys(levelGains.gains).length) return Promise.resolve(output);
+
+    var packagedProject;
+    try { packagedProject = JSON.parse(modules.fs.readFileSync(result.jsonPath, "utf8")); }
+    catch (readError) {
+      output.warnings.push("Paket take listesi okunamadı; düzey uygulanamadı: " + readError.message);
+      return Promise.resolve(output);
+    }
+
+    var packagedLinesById = {};
+    for (var pi = 0; pi < packagedProject.lines.length; pi++) packagedLinesById[packagedProject.lines[pi].lineId] = packagedProject.lines[pi];
+    var groups = {};
+    for (var i = 0; i < project.lines.length; i++) {
+      var sourceLine = project.lines[i];
+      var sourceTake = getSelectedTake(sourceLine);
+      if (!sourceTake) continue;
+      var sourcePath = resolveTakeFilePath(project, sourceTake, modules);
+      if (!sourcePath) continue;
+      var sourceKey = normalizeSlashes(sourcePath).toLowerCase();
+      var gainEntry = levelGains.gains[sourceKey];
+      if (!gainEntry || Math.abs(gainEntry.applied) < 0.3) continue;
+
+      var packagedLine = packagedLinesById[sourceLine.lineId];
+      if (!packagedLine || !packagedLine.takes) continue;
+      var packagedTake = null;
+      for (var pt = 0; pt < packagedLine.takes.length; pt++) {
+        if (packagedLine.takes[pt].takeId === sourceTake.takeId) { packagedTake = packagedLine.takes[pt]; break; }
+      }
+      if (!packagedTake) continue;
+      var destination = packagedTake.fileAbsolutePath;
+      if (!destination && packagedTake.fileRelativePath) destination = modules.path.join(result.packageRoot, packagedTake.fileRelativePath);
+      if (!destination || !modules.fs.existsSync(destination)) continue;
+
+      if (!groups[sourceKey]) groups[sourceKey] = { source: sourcePath, gain: gainEntry.applied, destinations: [] };
+      if (groups[sourceKey].destinations.indexOf(destination) < 0) groups[sourceKey].destinations.push(destination);
+    }
+
+    var tasks = Object.keys(groups).map(function (key) {
+      groups[key].key = key;
+      return groups[key];
+    });
+    var completed = 0;
+    emitPackageProgress(options, { phase: "level_takes", completed: 0, total: tasks.length });
+
+    return mapWithConcurrency(tasks, Number(options.mediaConcurrency || 4), function (task, taskIndex) {
+      var tempPath = modules.path.join(result.packageRoot, ".audub", "level-take-" + taskIndex + "-" + Date.now() + ".wav");
+      return runProcessCaptured(ffmpegExe,
+        ["-hide_banner", "-loglevel", "error", "-y", "-i", task.source, "-af", "volume=" + task.gain + "dB", "-c:a", "pcm_f32le", tempPath],
+        options).then(function (processResult) {
+        if (!processResult || processResult.status !== 0 || !modules.fs.existsSync(tempPath)) {
+          throw new Error("FFmpeg kodu: " + (processResult ? processResult.status : "?"));
+        }
+        return mapWithConcurrency(task.destinations, Number(options.mediaConcurrency || 4), function (destination) {
+          return copyFileAsync(modules, tempPath, destination, options);
+        }).then(function () {
+          output.leveled++;
+          output.leveledSources[task.key] = task.destinations[0];
+        });
+      }).catch(function (levelError) {
+        output.warnings.push("Paket take düzeyi uygulanamadı, düz kopya korundu: " + task.source + " (" + levelError.message + ")");
+      }).then(function () {
+        try { if (modules.fs.existsSync(tempPath)) modules.fs.unlinkSync(tempPath); } catch (ignoreTemp) {}
+        completed++;
+        emitPackageProgress(options, { phase: "level_takes", completed: completed, total: tasks.length, leveled: output.leveled, path: normalizeSlashes(task.source) });
+      });
+    }).then(function () { return output; });
+  }
+
+  function copySessionMediaAsync(result, sesxPath, mediaFiles, levelGains, preleveledSources, sanitizedSources, ffmpegExe, modules, options) {
+    var sesxDir = modules.path.dirname(sesxPath);
+    var tasks = [];
+    for (var i = 0; i < mediaFiles.length; i++) {
+      var relativePath = normalizeSlashes(modules.path.relative(sesxDir, mediaFiles[i].path));
+      var relativeLower = relativePath.toLowerCase();
+      if (!relativePath || relativePath.indexOf("../") === 0 || relativePath === "..") continue;
+      if (relativeLower.indexOf("audio/") === 0 || relativeLower.indexOf(".audub/") === 0) continue;
+      tasks.push({ source: mediaFiles[i].path, relativePath: relativePath });
+    }
+
+    var copied = 0;
+    var leveled = 0;
+    var sanitized = 0;
+    var leveledSources = {};
+    var completed = 0;
+    var warnings = [];
+    emitPackageProgress(options, { phase: "media", completed: 0, total: tasks.length });
+
+    return mapWithConcurrency(tasks, Number(options.mediaConcurrency || 4), function (task) {
+      var destination = modules.path.join(result.packageRoot, task.relativePath);
+      var destinationDir = modules.path.dirname(destination);
+      var sourceKey = normalizeSlashes(task.source).toLowerCase();
+      var gainEntry = levelGains && levelGains.gains ? levelGains.gains[sourceKey] : null;
+      var sourceNameKey = "name:" + baseNameNoExt(modules.path.basename(task.source)).toLowerCase();
+      var sanitizedEntry = sanitizedSources ? (sanitizedSources[sourceKey] || sanitizedSources[sourceNameKey]) : null;
+
+      return ensureDirectoryAsync(modules, destinationDir).then(function () {
+        if (modules.fs.existsSync(destination)) return;
+        if (sanitizedEntry && sanitizedEntry.path && modules.fs.existsSync(sanitizedEntry.path)) {
+          return copyFileAsync(modules, sanitizedEntry.path, destination, options).then(function () {
+            sanitized++;
+            if (gainEntry && Math.abs(gainEntry.applied) >= 0.3) {
+              leveled++;
+              leveledSources[sourceKey] = true;
+            }
+          });
+        }
+        if (gainEntry && Math.abs(gainEntry.applied) >= 0.3) {
+          if (preleveledSources && preleveledSources[sourceKey] && modules.fs.existsSync(preleveledSources[sourceKey])) {
+            return copyFileAsync(modules, preleveledSources[sourceKey], destination, options).then(function () {
+              leveled++;
+              leveledSources[sourceKey] = true;
+            });
+          }
+          return runProcessCaptured(ffmpegExe,
+            ["-hide_banner", "-loglevel", "error", "-y", "-i", task.source, "-af", "volume=" + gainEntry.applied + "dB", "-c:a", "pcm_f32le", destination],
+            options).then(function (processResult) {
+              if (processResult && processResult.status === 0 && modules.fs.existsSync(destination)) {
+                leveled++;
+                leveledSources[sourceKey] = true;
+                return;
+              }
+              throw new Error("FFmpeg kodu: " + (processResult ? processResult.status : "?"));
+            }).catch(function (levelError) {
+              try { if (modules.fs.existsSync(destination)) modules.fs.unlinkSync(destination); } catch (ignoreUnlink) {}
+              warnings.push("Gain uygulanamadı, düz kopyalandı: " + task.relativePath + " (" + levelError.message + ")");
+              return copyFileAsync(modules, task.source, destination, options);
+            });
+        }
+        return copyFileAsync(modules, task.source, destination, options);
+      }).then(function () {
+        copied++;
+      }).catch(function (copyError) {
+        warnings.push("Session medyası kopyalanamadı: " + task.relativePath + " (" + copyError.message + ")");
+      }).then(function () {
+        completed++;
+        emitPackageProgress(options, { phase: "media", completed: completed, total: tasks.length, leveled: leveled, path: normalizeSlashes(task.source) });
+      });
+    }).then(function () {
+      return { copied: copied, leveled: leveled, sanitized: sanitized, leveledSources: leveledSources, warnings: warnings };
+    });
+  }
+
+  function decodeXmlAttribute(value) {
+    return String(value || "")
+      .replace(/&#x([0-9a-f]+);/gi, function (_, hex) { return String.fromCharCode(parseInt(hex, 16)); })
+      .replace(/&#(\d+);/g, function (_, decimal) { return String.fromCharCode(parseInt(decimal, 10)); })
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&");
+  }
+
+  function encodeXmlAttribute(value) {
+    return String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function buildPackagedOriginalMediaMap(sourceProject, packagedProject, packageRoot, modules) {
+    var mappings = {};
+    var sourceLines = sourceProject && sourceProject.lines ? sourceProject.lines : [];
+    var packagedLines = packagedProject && packagedProject.lines ? packagedProject.lines : [];
+
+    function addNameAlias(value, entry) {
+      if (!value) return;
+      var alias = "name:" + modules.path.basename(String(value)).toLowerCase();
+      var existing = mappings[alias];
+      if (!existing) mappings[alias] = entry;
+      else if (existing.relativePath !== entry.relativePath) mappings[alias] = { ambiguous: true };
+    }
+
+    for (var i = 0; i < sourceLines.length && i < packagedLines.length; i++) {
+      var sourceLine = sourceLines[i] || {};
+      var packagedLine = packagedLines[i] || {};
+      var relativePath = normalizeSlashes(packagedLine.originalRelativePath || "");
+      if (!relativePath || relativePath === ".." || relativePath.indexOf("../") === 0) continue;
+      var absolutePath = modules.path.join(packageRoot, relativePath);
+      if (!modules.fs.existsSync(absolutePath)) continue;
+      var entry = { relativePath: relativePath, absolutePath: absolutePath };
+      var sourceAbsolutePath = sourceLine.originalAbsolutePath;
+      if (!sourceAbsolutePath && sourceProject.projectRootPath && sourceLine.originalRelativePath) {
+        sourceAbsolutePath = modules.path.join(sourceProject.projectRootPath, sourceLine.originalRelativePath);
+      }
+      if (sourceAbsolutePath) {
+        var sourceKey = normalizeSlashes(sourceAbsolutePath).toLowerCase();
+        if (!mappings[sourceKey]) mappings[sourceKey] = entry;
+      }
+      addNameAlias(sourceAbsolutePath, entry);
+      addNameAlias(sourceLine.originalName, entry);
+    }
+    return mappings;
+  }
+
+  // Audition once mutlak yolu dener. Gonderenin bilgisayarinda eski ham medya hala
+  // varsa paket kopyasini atlamamasi icin mutlak ve goreli yollar pakete sabitlenir.
+  function rewritePackagedSessionMediaPaths(sesxPath, packageRoot, sourceProject, packagedProjectPath, modules) {
+    if (!sesxPath || !modules.fs.existsSync(sesxPath)) return 0;
+    var source = modules.fs.readFileSync(sesxPath, "utf8");
+    var packagedProject = null;
+    try { packagedProject = JSON.parse(modules.fs.readFileSync(packagedProjectPath, "utf8")); } catch (ignoreProjectRead) {}
+    var originalMappings = buildPackagedOriginalMediaMap(sourceProject, packagedProject, packageRoot, modules);
+    var rewritten = 0;
+    var updated = source.replace(/<file\b[^>]*>/g, function (tag) {
+      var relativeMatch = /\brelativePath="([^"]*)"/.exec(tag);
+      var absoluteMatch = /\babsolutePath="([^"]*)"/.exec(tag);
+      if (!absoluteMatch) return tag;
+      var relativePath = relativeMatch ? decodeXmlAttribute(relativeMatch[1]).replace(/\\/g, "/") : "";
+      var mapping = null;
+      if (relativePath && relativePath !== ".." && relativePath.indexOf("../") !== 0 && !/^[a-z]:\//i.test(relativePath) && relativePath.charAt(0) !== "/") {
+        var relativeAbsolutePath = modules.path.join(packageRoot, relativePath);
+        if (modules.fs.existsSync(relativeAbsolutePath)) mapping = { relativePath: relativePath, absolutePath: relativeAbsolutePath };
+      }
+      if (!mapping) {
+        var sourceAbsolutePath = decodeXmlAttribute(absoluteMatch[1]);
+        var sourceKey = normalizeSlashes(sourceAbsolutePath).toLowerCase();
+        var sourceNameKey = "name:" + modules.path.basename(sourceAbsolutePath).toLowerCase();
+        mapping = originalMappings[sourceKey] || originalMappings[sourceNameKey] || null;
+        if (mapping && mapping.ambiguous) mapping = null;
+      }
+      if (!mapping) return tag;
+      var rewrittenTag = tag.replace(absoluteMatch[0], 'absolutePath="' + encodeXmlAttribute(mapping.absolutePath) + '"');
+      if (relativeMatch) {
+        rewrittenTag = rewrittenTag.replace(relativeMatch[0], 'relativePath="' + encodeXmlAttribute(mapping.relativePath) + '"');
+      } else {
+        rewrittenTag = rewrittenTag.replace(/(\s*\/?>)$/, ' relativePath="' + encodeXmlAttribute(mapping.relativePath) + '"$1');
+      }
+      rewritten++;
+      return rewrittenTag;
+    });
+    if (rewritten > 0) modules.fs.writeFileSync(sesxPath, updated, "utf8");
+    return rewritten;
+  }
+
+  function packageProjectAsync(project, options) {
+    options = options || {};
+    var modules = getNodeModules();
+    if (!modules) return Promise.reject(new Error("Node.js dosya yazma erişimi yok. Paketleme için CEP içinde --enable-nodejs çalışmalı."));
+    if (!project || !project.lines) return Promise.reject(new Error("Paketlenecek proje yok."));
+    if (!project.projectRootPath) return Promise.reject(new Error("Proje kök yolu bulunamadı."));
+
+    var sesxPath = options.sesxPath && String(options.sesxPath).trim() ? String(options.sesxPath) : null;
+    var sesxDir = sesxPath ? modules.path.dirname(sesxPath) : "";
+    var ffmpegExe = (options.ffmpegPath && String(options.ffmpegPath).trim()) ? String(options.ffmpegPath).trim()
+      : ((project.ffmpegPath && String(project.ffmpegPath).trim()) ? String(project.ffmpegPath).trim() : "ffmpeg");
+    var mediaFiles = sesxPath && options.includeSessionMedia !== false ? walkSessionAudioFiles(sesxDir, modules) : [];
+    var levelGains = null;
+    var result = null;
+
+    emitPackageProgress(options, { phase: "prepare", completed: 0, total: 1 });
+    var begin = new Promise(function (resolve) { setTimeout(resolve, 0); });
+    if (options.levelMatchOriginal && sesxPath) {
+      begin = begin.then(function () {
+        return buildRecordingGainMapAsync(project, ffmpegExe, modules, sesxDir, mediaFiles, options);
+      }).then(function (gains) { levelGains = gains; });
+    }
+
+    return begin.then(function () {
+      emitPackageProgress(options, { phase: "package", completed: 0, total: 1 });
+      return new Promise(function (resolve) { setTimeout(resolve, 0); });
+    }).then(function () {
+      var baseOptions = {};
+      Object.keys(options).forEach(function (key) { baseOptions[key] = options[key]; });
+      baseOptions.levelMatchOriginal = false;
+      baseOptions.includeSessionMedia = false;
+      baseOptions.skipVerify = true;
+      result = packageProject(project, baseOptions);
+      emitPackageProgress(options, { phase: "package", completed: 1, total: 1 });
+      return levelPackagedTakesAsync(project, result, levelGains, ffmpegExe, modules, options);
+    }).then(function (takeLevelResult) {
+      return sanitizePackagedTakesAsync(project, result, ffmpegExe, modules, options).then(function (sanitizeResult) {
+        if (!sesxPath || options.includeSessionMedia === false) {
+          return { takeLevelResult: takeLevelResult, sanitizeResult: sanitizeResult, mediaResult: { copied: 0, leveled: 0, sanitized: 0, leveledSources: {}, warnings: [] } };
+        }
+        return copySessionMediaAsync(result, sesxPath, mediaFiles, levelGains, takeLevelResult.leveledSources, sanitizeResult.sanitizedSources, ffmpegExe, modules, options)
+          .then(function (mediaResult) { return { takeLevelResult: takeLevelResult, sanitizeResult: sanitizeResult, mediaResult: mediaResult }; });
+      });
+    }).then(function (levelResults) {
+      var takeLevelResult = levelResults.takeLevelResult;
+      var sanitizeResult = levelResults.sanitizeResult;
+      var mediaResult = levelResults.mediaResult;
+      result.sessionMediaCount = mediaResult.copied;
+      result.leveledSessionFiles = mediaResult.leveled;
+      result.leveledPackagedTakes = takeLevelResult.leveled;
+      result.sessionPathsRewritten = 0;
+      if (result.sesxCopied) {
+        try { result.sessionPathsRewritten = rewritePackagedSessionMediaPaths(result.sesxCopied, result.packageRoot, project, result.jsonPath, modules); }
+        catch (rewriteError) { sanitizeResult.warnings.push("Paket .sesx medya yollari guncellenemedi: " + rewriteError.message); }
+      }
+      result.headTrim = {
+        requested: normalizeRecordingHeadTrimEnabled(project.recordingHeadTrimEnabled, DEFAULT_RECORDING_HEAD_TRIM_ENABLED),
+        mode: normalizeRecordingHeadTrimMode(project.recordingHeadTrimMode, DEFAULT_RECORDING_HEAD_TRIM_MODE),
+        sanitizedTakes: sanitizeResult.sanitizedTakes,
+        sanitizedSourceFiles: sanitizeResult.sanitizedSourceFiles,
+        sanitizedSessionFiles: mediaResult.sanitized,
+        unchanged: sanitizeResult.unchanged,
+        warnings: sanitizeResult.warnings
+      };
+      if (levelGains) {
+        if (takeLevelResult.warnings.length) levelGains.warnings = levelGains.warnings.concat(takeLevelResult.warnings);
+        if (mediaResult.warnings.length) levelGains.warnings = levelGains.warnings.concat(mediaResult.warnings);
+        var leveledSources = {};
+        Object.keys(takeLevelResult.leveledSources || {}).forEach(function (key) { leveledSources[key] = true; });
+        Object.keys(mediaResult.leveledSources || {}).forEach(function (key) { leveledSources[key] = true; });
+        var unchanged = 0;
+        Object.keys(levelGains.gains || {}).forEach(function (key) {
+          if (Math.abs(levelGains.gains[key].applied) < 0.3) unchanged++;
+        });
+        result.levelMatch = {
+          requested: true,
+          lineCount: levelGains.lineCount,
+          fileCount: levelGains.fileCount,
+          leveled: Object.keys(leveledSources).length,
+          unchanged: unchanged,
+          packagedTakesLeveled: takeLevelResult.leveled,
+          sessionFilesLeveled: mediaResult.leveled,
+          resolvedByName: levelGains.resolvedByName || 0,
+          warnings: levelGains.warnings
+        };
+      }
+      emitPackageProgress(options, { phase: "verify", completed: 0, total: 1 });
+      return new Promise(function (resolve) { setTimeout(resolve, 0); });
+    }).then(function () {
+      try {
+        result.packageVerify = verifyPackageProject(result.packageRoot);
+        result.packageVerifyError = null;
+      } catch (verifyError) {
+        result.packageVerify = null;
+        result.packageVerifyError = verifyError && verifyError.message ? verifyError.message : String(verifyError);
+      }
+      emitPackageProgress(options, { phase: "verify", completed: 1, total: 1 });
+      return result;
+    });
   }
 
   // Bir klasörü PowerShell Compress-Archive ile zip'ler. zip, klasörün yanına (kardeş) yazılır.
@@ -1547,6 +2472,21 @@
     });
   }
 
+  // Audition sürümüne göre doc.path tam dosya yerine session klasörü olabilir.
+  function resolveSessionFilePath(pathValue, displayName) {
+    var modules = getNodeModules();
+    if (!modules) throw new Error("Node.js erişimi yok.");
+
+    var target = pathValue && String(pathValue).trim();
+    if (!target) return "";
+    if (modules.path.extname(target).toLowerCase() === ".sesx") return normalizeSlashes(target);
+
+    var name = displayName && modules.path.basename(String(displayName).trim());
+    if (!name) return normalizeSlashes(target);
+    if (!modules.path.extname(name)) name += ".sesx";
+    return normalizeSlashes(modules.path.join(target, name));
+  }
+
   // Yeni kaydedilen session dosyası değişmeyi bırakmadan kopyalama/zip adımına geçme.
   function waitForFileStable(filePath, options) {
     options = options || {};
@@ -1560,10 +2500,60 @@
       var intervalMs = Math.max(100, Number(options.intervalMs || 250));
       var stableMs = Math.max(intervalMs, Number(options.stableMs || 2500));
       var timeoutMs = Math.max(stableMs + intervalMs, Number(options.timeoutMs || 60000));
+      var statTimeoutMs = Math.max(25, Number(options.statTimeoutMs || Math.min(5000, timeoutMs)));
+      var statFile = typeof options.statFile === "function" ? options.statFile : modules.fs.stat.bind(modules.fs);
       var startedAt = Date.now();
       var lastSignature = null;
       var lastChangedAt = 0;
+      var lastProgressAt = 0;
       var polls = 0;
+      var onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
+      var settled = false;
+      var pollTimer = null;
+      var statTimer = null;
+      var totalTimer = null;
+
+      function cleanup() {
+        if (pollTimer) clearTimeout(pollTimer);
+        if (statTimer) clearTimeout(statTimer);
+        if (totalTimer) clearTimeout(totalTimer);
+      }
+
+      function finishResolve(value) {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      }
+
+      function finishReject(error) {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      }
+
+      function schedulePoll() {
+        if (settled) return;
+        pollTimer = setTimeout(poll, intervalMs);
+      }
+
+      function report(status, now, st, error) {
+        if (!onProgress || (now - lastProgressAt < 1000 && status !== "changed")) return;
+        lastProgressAt = now;
+        try {
+          onProgress({
+            status: status,
+            path: normalizeSlashes(target),
+            elapsedMs: now - startedAt,
+            remainingMs: Math.max(0, timeoutMs - (now - startedAt)),
+            stableForMs: lastChangedAt ? now - lastChangedAt : 0,
+            sizeBytes: st && typeof st.size === "number" ? st.size : 0,
+            polls: polls,
+            errorCode: error && error.code ? error.code : null
+          });
+        } catch (ignoreProgress) {}
+      }
 
       function statSignature(st) {
         var mtime = typeof st.mtimeMs === "number" ? st.mtimeMs : (st.mtime ? st.mtime.getTime() : 0);
@@ -1571,46 +2561,79 @@
       }
 
       function poll() {
+        if (settled) return;
         polls++;
-        var now = Date.now();
-        var st = null;
-        try {
-          st = modules.fs.statSync(target);
-          if (st && typeof st.isFile === "function" && !st.isFile()) throw new Error("Yol dosya değil.");
-        } catch (eStat) {
-          if (now - startedAt >= timeoutMs) {
-            reject(new Error("Dosya hazır olmadı: " + eStat.message));
-          } else {
-            setTimeout(poll, intervalMs);
+        var statFinished = false;
+
+        function onStat(eStat, st) {
+          if (settled || statFinished) return;
+          statFinished = true;
+          if (statTimer) { clearTimeout(statTimer); statTimer = null; }
+          var now = Date.now();
+
+          if (eStat) {
+            if (eStat.code === "EPERM" || eStat.code === "EACCES") {
+              finishReject(new Error("Session dosyasına erişilemiyor [" + eStat.code + "]: " + normalizeSlashes(target)));
+              return;
+            }
+            if (now - startedAt >= timeoutMs) {
+              finishReject(new Error("Dosya hazır olmadı: " + eStat.message));
+            } else {
+              report("waiting_for_file", now, null, eStat);
+              schedulePoll();
+            }
+            return;
           }
-          return;
+
+          if (st && typeof st.isFile === "function" && !st.isFile()) {
+            finishReject(new Error("Session yolu bir dosya değil: " + normalizeSlashes(target)));
+            return;
+          }
+
+          var sig = statSignature(st);
+          if (sig !== lastSignature) {
+            lastSignature = sig;
+            lastChangedAt = now;
+            report("changed", now, st, null);
+          } else {
+            report("stabilizing", now, st, null);
+          }
+
+          if (st.size > 0 && now - lastChangedAt >= stableMs) {
+            finishResolve({
+              path: normalizeSlashes(target),
+              sizeBytes: st.size,
+              mtimeMs: typeof st.mtimeMs === "number" ? st.mtimeMs : (st.mtime ? st.mtime.getTime() : 0),
+              stableMs: now - lastChangedAt,
+              polls: polls
+            });
+            return;
+          }
+
+          if (now - startedAt >= timeoutMs) {
+            finishReject(new Error("Dosya yazımı stabil hale gelmedi: " + normalizeSlashes(target)));
+            return;
+          }
+          schedulePoll();
         }
 
-        var sig = statSignature(st);
-        if (sig !== lastSignature) {
-          lastSignature = sig;
-          lastChangedAt = now;
-        }
+        statTimer = setTimeout(function () {
+          var timeoutError = new Error("Dosya bilgisi okunurken zaman aşımı: " + normalizeSlashes(target));
+          timeoutError.code = "ESTATTIMEOUT";
+          onStat(timeoutError);
+        }, statTimeoutMs);
 
-        if (st.size > 0 && now - lastChangedAt >= stableMs) {
-          resolve({
-            path: normalizeSlashes(target),
-            sizeBytes: st.size,
-            mtimeMs: typeof st.mtimeMs === "number" ? st.mtimeMs : (st.mtime ? st.mtime.getTime() : 0),
-            stableMs: now - lastChangedAt,
-            polls: polls
-          });
-          return;
+        try {
+          statFile(target, onStat);
+        } catch (eStatCall) {
+          onStat(eStatCall);
         }
-
-        if (now - startedAt >= timeoutMs) {
-          reject(new Error("Dosya yazımı stabil hale gelmedi: " + normalizeSlashes(target)));
-          return;
-        }
-        setTimeout(poll, intervalMs);
       }
 
-      poll();
+      totalTimer = setTimeout(function () {
+        finishReject(new Error("Dosya hazır olmadı: zaman aşımı (" + normalizeSlashes(target) + ")"));
+      }, timeoutMs);
+      pollTimer = setTimeout(poll, 0);
     });
   }
 
@@ -1711,6 +2734,7 @@
     ensureProjectFolders(project.projectRootPath, modules);
     var metadataDir = modules.path.join(project.projectRootPath, ".audub");
 
+    normalizeRecordingHeadTrimSettings(project);
     project.updatedAt = new Date().toISOString();
     var jsonPath = modules.path.join(metadataDir, "project.json");
     modules.fs.writeFileSync(jsonPath, JSON.stringify(project, null, 2), "utf8");
@@ -1889,7 +2913,7 @@
     modules.fs.writeFileSync(jsonPath, JSON.stringify({
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.1.5",
+      appVersion: APP_VERSION,
       projectId: project.projectId,
       projectName: project.projectName,
       createdAt: new Date().toISOString(),
@@ -1980,7 +3004,7 @@
     }
 
     project.updatedAt = new Date().toISOString();
-    project.appVersion = "0.7.0";
+    project.appVersion = APP_VERSION;
     var verification = writeTakeReport(project);
     return { attached: attached, unmatched: unmatched, longerThanOriginal: verification.longerThanOriginal, reportPath: verification.csvPath };
   }
@@ -2087,7 +3111,7 @@
     var plan = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.1.5",
+      appVersion: APP_VERSION,
       projectId: project.projectId,
       projectName: project.projectName,
       createdAt: new Date().toISOString(),
@@ -2158,7 +3182,7 @@
       mixMapId: uid("mixmap"),
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.1.5",
+      appVersion: APP_VERSION,
       projectId: project.projectId,
       projectName: project.projectName,
       createdAt: new Date().toISOString(),
@@ -2439,7 +3463,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.1.5",
+      appVersion: APP_VERSION,
       projectId: project.projectId,
       projectName: project.projectName,
       checkedAt: new Date().toISOString(),
@@ -2482,12 +3506,30 @@
 
 
   function copyMixFileIntoProject(project, file, modules) {
+    // Önceki mix'i yalnızca AKTİF proje kökünün altındaysa ve diskte duruyorsa yeniden kullan.
+    // Paket taşındıysa buradaki yol gönderenin diskini gösterir.
     if (!file && project.lastMixSplitPlan && project.lastMixSplitPlan.mixFileAbsolutePath) {
-      return {
-        fileName: project.lastMixSplitPlan.mixFileName,
-        relativePath: project.lastMixSplitPlan.mixFileRelativePath,
-        absolutePath: project.lastMixSplitPlan.mixFileAbsolutePath
-      };
+      var cachedMix = project.lastMixSplitPlan.mixFileAbsolutePath;
+      var cachedOk = isPathInsideRoot(cachedMix, project.projectRootPath) && modules.fs.existsSync(cachedMix);
+      if (cachedOk) {
+        return {
+          fileName: project.lastMixSplitPlan.mixFileName,
+          relativePath: project.lastMixSplitPlan.mixFileRelativePath,
+          absolutePath: cachedMix
+        };
+      }
+      // Göreli yol paketin içinde hâlâ duruyor olabilir (paket taşınmış olsa da).
+      if (project.lastMixSplitPlan.mixFileRelativePath) {
+        var rebased = modules.path.join(project.projectRootPath, project.lastMixSplitPlan.mixFileRelativePath);
+        if (modules.fs.existsSync(rebased)) {
+          return {
+            fileName: project.lastMixSplitPlan.mixFileName,
+            relativePath: project.lastMixSplitPlan.mixFileRelativePath,
+            absolutePath: normalizeSlashes(rebased)
+          };
+        }
+      }
+      throw new Error("Önceki mix dosyası bu bilgisayarda bulunamadı (" + cachedMix + "). Adım 2'de mixlenmiş dosyayı yeniden seç.");
     }
     if (!file) throw new Error("Mix dosyası seçilmedi.");
     var sourcePath = file.path || null;
@@ -2532,26 +3574,34 @@
 
   function createMixSplitItems(project, mixInfo) {
     var gap = Number(project.gapSeconds || 0);
+    var recordingHeadTrimEnabled = normalizeRecordingHeadTrimEnabled(project.recordingHeadTrimEnabled, DEFAULT_RECORDING_HEAD_TRIM_ENABLED);
+    var recordingHeadTrimMode = normalizeRecordingHeadTrimMode(project.recordingHeadTrimMode, DEFAULT_RECORDING_HEAD_TRIM_MODE);
+    var recordingHeadTrimMs = normalizeRecordingHeadTrimMs(project.recordingHeadTrimMs, DEFAULT_RECORDING_HEAD_TRIM_MS);
     var cursor = 0;
     var used = {};
     var items = [];
     var modules = getNodeModules();
-    // Düzey eşitleme artık SESLENDİRMEN tarafında, paketleme sırasında yapılır.
-    // Kesim anında eşitleme yalnız açıkça istenirse çalışır (mixçinin mix kararlarını ezmesin).
-    var levelMatchOn = project.levelMatchOriginal === true;
+    // Düzey eşitleme final mix bölündükten sonra uygulanır. Eski project.json dosyalarında
+    // alan bulunmadığı için yalnızca açıkça kapatılmışsa devre dışı kabul edilir.
+    var levelMatchOn = project.levelMatchOriginal !== false;
     for (var i = 0; i < project.lines.length; i++) {
       var line = project.lines[i];
       var take = getSelectedTake(line);
       var src = getLineSourceForExport(line);
       var dur, start, end;
+      var headTrimMsApplied = 0;
+      var headTrimAutoEligible = false;
       // Canlı kayıt eşlemesinde take, Audition timeline'daki GERÇEK pozisyonu (mixStart/mixEnd)
       // taşır. Mixdown bu sınırlarla kesilmeli; cursor düzeni sadece eski dosya-bazlı akış için fallback.
       // Tek kesim: repliğin tüm bölgesi [mixStart, mixEnd]. Çok parçalı (delete silence)
       // repliklerde bu bölge parçalar arası boşlukları DA içerir; boşluklar korunur.
       if (take && typeof take.mixStart === "number" && typeof take.mixEnd === "number" && take.mixEnd > take.mixStart) {
-        start = Number(take.mixStart.toFixed(3));
-        end = Number(take.mixEnd.toFixed(3));
-        dur = Number((end - start).toFixed(3));
+        var trimmedBounds = recordingMixBounds(take, recordingHeadTrimMs, recordingHeadTrimEnabled, recordingHeadTrimMode);
+        start = trimmedBounds.start;
+        end = trimmedBounds.end;
+        dur = trimmedBounds.duration;
+        headTrimMsApplied = trimmedBounds.appliedMs;
+        headTrimAutoEligible = trimmedBounds.autoEligible;
       } else {
         dur = typeof src.duration === "number" ? src.duration : (typeof line.originalDuration === "number" ? line.originalDuration : 0);
         start = Number(cursor.toFixed(3));
@@ -2567,6 +3617,11 @@
         mixStart: start,
         mixEnd: end,
         duration: Number((end - start).toFixed(3)),
+        headTrimEnabled: recordingHeadTrimEnabled,
+        headTrimMode: recordingHeadTrimMode,
+        headTrimMsRequested: recordingHeadTrimMs,
+        headTrimMsApplied: headTrimMsApplied,
+        headTrimAutoEligible: headTrimAutoEligible,
         gapAfterSeconds: i === project.lines.length - 1 ? 0 : gap,
         outputFileName: outName,
         outputRelativePath: "Audio/Takes/" + outName,
@@ -2587,20 +3642,35 @@
     if (!modules) throw new Error("Node.js dosya yazma erişimi yok. Mix split plan için CEP içinde Node açık olmalı.");
     if (!project || !project.lines) throw new Error("Mix split plan için geçerli proje yok.");
     if (!project.projectRootPath) throw new Error("Proje kök yolu bulunamadı.");
+    normalizeRecordingHeadTrimSettings(project);
 
     ensureProjectFolders(project.projectRootPath, modules);
     var metadataDir = modules.path.join(project.projectRootPath, ".audub");
     var mixInfo = copyMixFileIntoProject(project, mixFile, modules);
     var items = createMixSplitItems(project, mixInfo);
+    var headTrimmedItemCount = 0;
+    var headTrimTotalMs = 0;
+    var headTrimAutoCandidateCount = 0;
+    for (var trimIndex = 0; trimIndex < items.length; trimIndex++) {
+      if (items[trimIndex].headTrimMsApplied > 0) headTrimmedItemCount++;
+      headTrimTotalMs += Number(items[trimIndex].headTrimMsApplied || 0);
+      if (items[trimIndex].headTrimAutoEligible) headTrimAutoCandidateCount++;
+    }
     var plan = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.1.5",
+      appVersion: APP_VERSION,
       projectId: project.projectId,
       projectName: project.projectName,
       createdAt: new Date().toISOString(),
       strategy: "split_single_mixed_file_by_mix_map_segments",
       gapSeconds: Number(project.gapSeconds || 0),
+      recordingHeadTrimEnabled: project.recordingHeadTrimEnabled,
+      recordingHeadTrimMode: project.recordingHeadTrimMode,
+      recordingHeadTrimMs: normalizeRecordingHeadTrimMs(project.recordingHeadTrimMs, DEFAULT_RECORDING_HEAD_TRIM_MS),
+      headTrimmedItemCount: headTrimmedItemCount,
+      headTrimTotalMs: headTrimTotalMs,
+      headTrimAutoCandidateCount: headTrimAutoCandidateCount,
       mixFileName: mixInfo.fileName,
       mixFileRelativePath: mixInfo.relativePath,
       mixFileAbsolutePath: mixInfo.absolutePath,
@@ -2610,11 +3680,11 @@
 
     var jsonPath = modules.path.join(metadataDir, "mix-split-plan.json");
     modules.fs.writeFileSync(jsonPath, JSON.stringify(plan, null, 2), "utf8");
-    var headers = ["index","lineId","originalName","mixStart","mixEnd","duration","outputFileName","outputRelativePath"];
+    var headers = ["index","lineId","originalName","mixStart","mixEnd","duration","headTrimEnabled","headTrimMode","headTrimMsRequested","headTrimMsApplied","headTrimAutoEligible","outputFileName","outputRelativePath"];
     var rows = [headers.join(",")];
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
-      rows.push([it.index, it.lineId, it.originalName, it.mixStart, it.mixEnd, it.duration, it.outputFileName, it.outputRelativePath].map(csvEscape).join(","));
+      rows.push([it.index, it.lineId, it.originalName, it.mixStart, it.mixEnd, it.duration, it.headTrimEnabled, it.headTrimMode, it.headTrimMsRequested, it.headTrimMsApplied, it.headTrimAutoEligible, it.outputFileName, it.outputRelativePath].map(csvEscape).join(","));
     }
     var csvPath = modules.path.join(metadataDir, "mix-split-plan.csv");
     modules.fs.writeFileSync(csvPath, rows.join("\r\n"), "utf8");
@@ -2624,6 +3694,12 @@
       csvPath: normalizeSlashes(csvPath),
       createdAt: plan.createdAt,
       itemCount: items.length,
+      recordingHeadTrimEnabled: plan.recordingHeadTrimEnabled,
+      recordingHeadTrimMode: plan.recordingHeadTrimMode,
+      recordingHeadTrimMs: plan.recordingHeadTrimMs,
+      headTrimmedItemCount: headTrimmedItemCount,
+      headTrimTotalMs: headTrimTotalMs,
+      headTrimAutoCandidateCount: headTrimAutoCandidateCount,
       mixFileName: mixInfo.fileName,
       mixFileRelativePath: mixInfo.relativePath,
       mixFileAbsolutePath: mixInfo.absolutePath,
@@ -2631,7 +3707,19 @@
     };
     project.updatedAt = new Date().toISOString();
     saveProject(project);
-    return { jsonPath: normalizeSlashes(jsonPath), csvPath: normalizeSlashes(csvPath), itemCount: items.length, items: items, mixInfo: mixInfo };
+    return {
+      jsonPath: normalizeSlashes(jsonPath),
+      csvPath: normalizeSlashes(csvPath),
+      itemCount: items.length,
+      recordingHeadTrimEnabled: plan.recordingHeadTrimEnabled,
+      recordingHeadTrimMode: plan.recordingHeadTrimMode,
+      recordingHeadTrimMs: plan.recordingHeadTrimMs,
+      headTrimmedItemCount: headTrimmedItemCount,
+      headTrimTotalMs: headTrimTotalMs,
+      headTrimAutoCandidateCount: headTrimAutoCandidateCount,
+      items: items,
+      mixInfo: mixInfo
+    };
   }
 
   function createFfmpegMixSplitScript(project, mixFile) {
@@ -2647,6 +3735,7 @@
     var ps1Path = modules.path.join(metadataDir, "run-split-mix-ffmpeg.ps1");
     var batPath = modules.path.join(metadataDir, "run-split-mix-ffmpeg.bat");
     var logPath = modules.path.join(metadataDir, "ffmpeg-split-log.txt");
+    var headTrimResultsPath = modules.path.join(metadataDir, "head-trim-results.json");
     var mixSource = planResult.mixInfo.absolutePath;
     var items = planResult.items;
 
@@ -2661,12 +3750,42 @@
     lines.push("$mixSource = " + psQuote(mixSource));
     lines.push("$outputDir = " + psQuote(outputDir));
     lines.push("$logPath = " + psQuote(logPath));
+    lines.push("$headTrimResultsPath = " + psQuote(headTrimResultsPath));
     lines.push("New-Item -ItemType Directory -Force -Path $outputDir | Out-Null");
     lines.push("Set-Content -LiteralPath $logPath -Encoding UTF8 -Value ('AU Dub Panel FFmpeg Mix Split Log - ' + (Get-Date -Format o))");
     lines.push("function AUWrite($msg) { Write-Host $msg; Add-Content -LiteralPath $logPath -Encoding UTF8 -Value $msg }");
     lines.push("function AUWarn($msg) { Write-Warning $msg; Add-Content -LiteralPath $logPath -Encoding UTF8 -Value ('WARNING: ' + $msg) }");
     // Sayilari her zaman nokta ondalikla yaz (TR yerelde virgul ffmpeg'i bozar).
     lines.push("function AUNum($n) { return ([double]$n).ToString('0.0#', [System.Globalization.CultureInfo]::InvariantCulture) }");
+    // Kisa tus darbelerini atlayip en az 120 ms suren sesi konusma baslangici sayar.
+    // Belirsiz veya asiri kirpma kararlarinda gecici cikti silinir ve kaynak aynen korunur.
+    lines.push("function AUAutoHeadTrim($file, $start, $duration, $output) {");
+    lines.push("  $result = @{ seconds = 0.0; outputDuration = [double]$duration; temp = ''; reason = 'speech_or_no_boundary' }");
+    lines.push("  $minUsefulTrim = " + AUTO_HEAD_TRIM_MIN_USEFUL_SECONDS);
+    lines.push("  $minRemainingAudio = " + AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS);
+    lines.push("  $maxTrim = [math]::Min(" + AUTO_HEAD_TRIM_MAX_SECONDS + ", [math]::Max(0.0, [math]::Round(([double]$duration - $minRemainingAudio), 3)))");
+    lines.push("  if ($maxTrim -lt $minUsefulTrim) { $result.reason = 'clip_too_short'; return $result }");
+    lines.push("  $tmp = $output + '.autotrim.wav'");
+    lines.push("  if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }");
+    lines.push("  $filter = " + psQuote(AUTO_HEAD_TRIM_FILTER));
+    lines.push("  $txt = (& $ffmpeg -hide_banner -loglevel error -nostats -y -ss (AUNum $start) -t (AUNum $duration) -i $file -af $filter -c:a pcm_f32le -progress pipe:1 $tmp 2>&1) | Out-String");
+    lines.push("  $filterExit = $LASTEXITCODE");
+    lines.push("  if (($filterExit -ne 0) -or !(Test-Path -LiteralPath $tmp)) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue; $result.reason = 'analysis_failed'; return $result }");
+    lines.push("  $times = [regex]::Matches($txt, 'out_time_us=(\\d+)')");
+    lines.push("  if ($times.Count -eq 0) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue; $result.reason = 'duration_probe_failed'; return $result }");
+    lines.push("  $trimmedDuration = [double]$times[$times.Count - 1].Groups[1].Value / 1000000.0");
+    lines.push("  $candidate = [math]::Round(([double]$duration - $trimmedDuration), 3)");
+    lines.push("  if (($candidate -lt $minUsefulTrim) -or ($candidate -gt $maxTrim) -or ($trimmedDuration -lt $minRemainingAudio)) {");
+    lines.push("    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue");
+    lines.push("    if ($candidate -gt $maxTrim) { $result.reason = 'trim_limit_exceeded' }");
+    lines.push("    return $result");
+    lines.push("  }");
+    lines.push("  $result.seconds = $candidate");
+    lines.push("  $result.outputDuration = [math]::Round($trimmedDuration, 3)");
+    lines.push("  $result.temp = $tmp");
+    lines.push("  $result.reason = 'sustained_speech_boundary'");
+    lines.push("  return $result");
+    lines.push("}");
     // volumedetect ciktisindan ortalama (mean) ve tepe (max) dB okur; stderr yakalanir, konsola dokulmez.
     lines.push("function AUVolStats($file) {");
     lines.push("  $txt = (& $ffmpeg -hide_banner -nostats -i $file -af volumedetect -f null NUL 2>&1) | Out-String");
@@ -2681,14 +3800,41 @@
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
       var out = modules.path.join(outputDir, it.outputFileName);
-      lines.push("  @{ index = " + it.index + "; lineId = " + psQuote(it.lineId) + "; start = " + it.mixStart + "; duration = " + it.duration + "; output = " + psQuote(out) + "; levelRef = " + psQuote(it.levelRefPath || "") + " }");
+      lines.push("  @{ index = " + it.index + "; lineId = " + psQuote(it.lineId) + "; start = " + it.mixStart + "; duration = " + it.duration + "; autoTrim = " + (it.headTrimAutoEligible ? "$true" : "$false") + "; plannedTrimMs = " + Number(it.headTrimMsApplied || 0) + "; output = " + psQuote(out) + "; levelRef = " + psQuote(it.levelRefPath || "") + " }");
     }
     lines.push(")");
-    lines.push("$ok = 0; $failed = 0; $leveled = 0");
+    lines.push("$ok = 0; $failed = 0; $leveled = 0; $autoTrimmed = 0; $autoTrimTotalMs = 0");
+    lines.push("$trimResults = @()");
     lines.push("foreach ($item in $items) {");
-    lines.push("  AUWrite (\"Split [{0}/{1}] {2}: start={3}s dur={4}s -> {5}\" -f $item.index, $items.Count, $item.lineId, $item.start, $item.duration, $item.output)");
-    lines.push("  & $ffmpeg -hide_banner -y -ss $item.start -t $item.duration -i $mixSource -c:a pcm_f32le $item.output");
-    lines.push("  if ($LASTEXITCODE -eq 0) {");
+    lines.push("  $actualStart = [double]$item.start");
+    lines.push("  $actualDuration = [double]$item.duration");
+    lines.push("  $appliedTrimMs = [int]$item.plannedTrimMs");
+    lines.push("  $autoOutput = ''");
+    lines.push("  $trimReason = $(if ($item.autoTrim) { 'speech_or_no_boundary' } elseif ($appliedTrimMs -gt 0) { 'fixed' } else { 'disabled_or_ineligible' })");
+    lines.push("  if ($item.autoTrim) {");
+    lines.push("    $auto = AUAutoHeadTrim $mixSource $actualStart $actualDuration $item.output");
+    lines.push("    $trimReason = $auto.reason");
+    lines.push("    if ([double]$auto.seconds -gt 0) {");
+    lines.push("      $actualStart = [math]::Round($actualStart + [double]$auto.seconds, 3)");
+    lines.push("      $actualDuration = [double]$auto.outputDuration");
+    lines.push("      $autoOutput = [string]$auto.temp");
+    lines.push("      $appliedTrimMs = [int][math]::Round([double]$auto.seconds * 1000)");
+    lines.push("      $autoTrimmed++; $autoTrimTotalMs += $appliedTrimMs");
+    lines.push("      AUWrite (\"  otomatik tus sesi siniri: {0} ms kirpildi ({1})\" -f $appliedTrimMs, $item.lineId)");
+    lines.push("    } else {");
+    lines.push("      AUWrite (\"  otomatik kirpma yok: guvenli sessizlik siniri bulunamadi, konusma korundu ({0})\" -f $item.lineId)");
+    lines.push("    }");
+    lines.push("  }");
+    lines.push("  AUWrite (\"Split [{0}/{1}] {2}: start={3}s dur={4}s -> {5}\" -f $item.index, $items.Count, $item.lineId, (AUNum $actualStart), (AUNum $actualDuration), $item.output)");
+    lines.push("  if ($autoOutput -and (Test-Path -LiteralPath $autoOutput)) {");
+    lines.push("    try { Move-Item -LiteralPath $autoOutput -Destination $item.output -Force -ErrorAction Stop; $splitExit = 0 }");
+    lines.push("    catch { AUWarn (\"Otomatik kirpilmis cikti tasinamadi: {0}\" -f $_.Exception.Message); $splitExit = 12 }");
+    lines.push("  } else {");
+    lines.push("    & $ffmpeg -hide_banner -loglevel error -nostats -y -ss (AUNum $actualStart) -t (AUNum $actualDuration) -i $mixSource -c:a pcm_f32le $item.output");
+    lines.push("    $splitExit = $LASTEXITCODE");
+    lines.push("  }");
+    lines.push("  $trimResults += [pscustomobject]@{ lineId = $item.lineId; appliedMs = $appliedTrimMs; outputDuration = $actualDuration; outputStart = $actualStart; reason = $trimReason }");
+    lines.push("  if ($splitExit -eq 0) {");
     lines.push("    $ok++");
     // Duzey esitleme: parcanin ortalama dB'sini orijinalinkine cek (tepe -1 dBFS'i gecmesin).
     lines.push("    if ($item.levelRef -and (Test-Path -LiteralPath $item.levelRef)) {");
@@ -2707,10 +3853,11 @@
     lines.push("        } else { AUWrite (\"  duzey zaten esit (fark \" + (AUNum $delta) + \" dB), dokunulmadi\") }");
     lines.push("      } else { AUWarn (\"  duzey olculemedi: \" + $item.lineId) }");
     lines.push("    }");
-    lines.push("  } else { AUWarn (\"FFmpeg split hata kodu {0}: {1}\" -f $LASTEXITCODE, $item.lineId); $failed++ }");
+    lines.push("  } else { AUWarn (\"FFmpeg split hata kodu {0}: {1}\" -f $splitExit, $item.lineId); $failed++ }");
     lines.push("}");
+    lines.push("ConvertTo-Json -InputObject @($trimResults) -Depth 4 | Set-Content -LiteralPath $headTrimResultsPath -Encoding UTF8");
     lines.push("AUWrite \"----------------------------------------\"");
-    lines.push("AUWrite (\"Split bitti. Basarili: {0} / Hatali: {1} / Duzeyi esitlenen: {2}\" -f $ok, $failed, $leveled)");
+    lines.push("AUWrite (\"Split bitti. Basarili: {0} / Hatali: {1} / Duzeyi esitlenen: {2} / Otomatik kirpilan: {3} ({4} ms)\" -f $ok, $failed, $leveled, $autoTrimmed, $autoTrimTotalMs)");
     lines.push("AUWrite (\"Log: {0}\" -f $logPath)");
     lines.push("if ($failed -gt 0) { exit 2 }");
     lines.push("exit 0");
@@ -2731,10 +3878,17 @@
       ps1Path: normalizeSlashes(ps1Path),
       batPath: normalizeSlashes(batPath),
       logPath: normalizeSlashes(logPath),
+      headTrimResultsPath: normalizeSlashes(headTrimResultsPath),
       outputDir: normalizeSlashes(outputDir),
       planPath: planResult.jsonPath,
       createdAt: new Date().toISOString(),
       itemCount: items.length,
+      recordingHeadTrimEnabled: planResult.recordingHeadTrimEnabled,
+      recordingHeadTrimMode: planResult.recordingHeadTrimMode,
+      recordingHeadTrimMs: planResult.recordingHeadTrimMs,
+      headTrimmedItemCount: planResult.headTrimmedItemCount,
+      headTrimTotalMs: planResult.headTrimTotalMs,
+      headTrimAutoCandidateCount: planResult.headTrimAutoCandidateCount,
       levelMatchCount: levelMatchCount
     };
     project.updatedAt = new Date().toISOString();
@@ -2743,9 +3897,16 @@
       ps1Path: normalizeSlashes(ps1Path),
       batPath: normalizeSlashes(batPath),
       logPath: normalizeSlashes(logPath),
+      headTrimResultsPath: normalizeSlashes(headTrimResultsPath),
       outputDir: normalizeSlashes(outputDir),
       planPath: planResult.jsonPath,
       itemCount: items.length,
+      recordingHeadTrimEnabled: planResult.recordingHeadTrimEnabled,
+      recordingHeadTrimMode: planResult.recordingHeadTrimMode,
+      recordingHeadTrimMs: planResult.recordingHeadTrimMs,
+      headTrimmedItemCount: planResult.headTrimmedItemCount,
+      headTrimTotalMs: planResult.headTrimTotalMs,
+      headTrimAutoCandidateCount: planResult.headTrimAutoCandidateCount,
       levelMatchCount: levelMatchCount
     };
   }
@@ -2760,8 +3921,14 @@
 
       var scriptInfo;
       try {
-        if (mixFile || !(project.lastMixSplitScript && project.lastMixSplitScript.ps1Path)) scriptInfo = createFfmpegMixSplitScript(project, mixFile);
-        else scriptInfo = project.lastMixSplitScript;
+        // Kayıtlı script yalnızca AKTİF proje kökünün altındaysa ve dosya gerçekten
+        // duruyorsa yeniden kullanılabilir. Paket başka makineden geldiyse buradaki
+        // yol gönderenin diskini gösterir; körlemesine kullanmak EPERM/dosya yok hatası verir.
+        var cached = project.lastMixSplitScript;
+        var cachedUsable = !mixFile && cached && cached.ps1Path &&
+          isPathInsideRoot(cached.ps1Path, project.projectRootPath) &&
+          modules.fs.existsSync(cached.ps1Path);
+        scriptInfo = cachedUsable ? cached : createFfmpegMixSplitScript(project, mixFile);
       } catch (e2) { reject(e2); return; }
 
       var psExe = "powershell.exe";
@@ -2782,6 +3949,20 @@
     return null;
   }
 
+  function readHeadTrimResults(project, modules) {
+    var resultPath = project && project.lastMixSplitScript && project.lastMixSplitScript.headTrimResultsPath;
+    if (!resultPath || !modules.fs.existsSync(resultPath)) return {};
+    try {
+      var parsed = JSON.parse(modules.fs.readFileSync(resultPath, "utf8").replace(/^\uFEFF/, ""));
+      var rows = Array.isArray(parsed) ? parsed : [parsed];
+      var byLineId = {};
+      for (var i = 0; i < rows.length; i++) if (rows[i] && rows[i].lineId) byLineId[rows[i].lineId] = rows[i];
+      return byLineId;
+    } catch (e) {
+      return {};
+    }
+  }
+
   function verifyMixSplitOutputs(project, attachAsTakes) {
     var modules = getNodeModules();
     if (!modules) throw new Error("Node.js dosya okuma erişimi yok. Mix split doğrulama için CEP içinde Node açık olmalı.");
@@ -2795,9 +3976,20 @@
     var present = 0, missing = 0, empty = 0, attachedTakes = 0;
     var problemFiles = [];
     var splitId = project.lastMixSplitPlan.createdAt || project.lastMixSplitPlan.jsonPath || uid("split");
+    var headTrimResults = readHeadTrimResults(project, modules);
+    var actualHeadTrimmedItemCount = 0;
+    var actualHeadTrimTotalMs = 0;
 
     for (var i = 0; i < project.lastMixSplitPlan.items.length; i++) {
       var it = project.lastMixSplitPlan.items[i];
+      var trimResult = headTrimResults[it.lineId] || null;
+      var actualDuration = trimResult && typeof trimResult.outputDuration === "number" ? trimResult.outputDuration : it.duration;
+      var actualHeadTrimMs = trimResult && typeof trimResult.appliedMs === "number" ? trimResult.appliedMs : Number(it.headTrimMsApplied || 0);
+      if (actualHeadTrimMs > 0) actualHeadTrimmedItemCount++;
+      actualHeadTrimTotalMs += actualHeadTrimMs;
+      it.actualOutputDuration = actualDuration;
+      it.actualHeadTrimMsApplied = actualHeadTrimMs;
+      if (trimResult && trimResult.reason) it.actualHeadTrimReason = trimResult.reason;
       var outPath = modules.path.join(project.projectRootPath, it.outputRelativePath);
       var exists = false, size = 0;
       try { exists = modules.fs.existsSync(outPath); if (exists) size = modules.fs.statSync(outPath).size; } catch (e) { exists = false; }
@@ -2824,9 +4016,9 @@
             originalTakeName: it.outputFileName,
             fileRelativePath: it.outputRelativePath,
             fileAbsolutePath: normalizeSlashes(outPath),
-            duration: it.duration,
+            duration: actualDuration,
             recordStart: typeof line.timelineStart === "number" ? line.timelineStart : 0,
-            recordEnd: typeof line.timelineStart === "number" ? Number((line.timelineStart + it.duration).toFixed(3)) : it.duration,
+            recordEnd: typeof line.timelineStart === "number" ? Number((line.timelineStart + actualDuration).toFixed(3)) : actualDuration,
             linkedAt: new Date().toISOString(),
             matchMode: "mix_split_map",
             sourceKind: "mix_split",
@@ -2848,7 +4040,9 @@
         originalName: it.originalName,
         mixStart: it.mixStart,
         mixEnd: it.mixEnd,
-        duration: it.duration,
+        duration: actualDuration,
+        headTrimMsApplied: actualHeadTrimMs,
+        headTrimReason: trimResult && trimResult.reason ? trimResult.reason : "",
         outputFileName: it.outputFileName,
         outputPath: normalizeSlashes(outPath),
         exists: exists,
@@ -2857,16 +4051,16 @@
       });
     }
 
-    var csvHeaders = ["index","lineId","originalName","mixStart","mixEnd","duration","outputFileName","exists","sizeBytes","status","outputPath"];
+    var csvHeaders = ["index","lineId","originalName","mixStart","mixEnd","duration","headTrimMsApplied","headTrimReason","outputFileName","exists","sizeBytes","status","outputPath"];
     var rows = [csvHeaders.join(",")];
     for (var r = 0; r < details.length; r++) {
       var d = details[r];
-      rows.push([d.index, d.lineId, d.originalName, d.mixStart, d.mixEnd, d.duration, d.outputFileName, d.exists, d.sizeBytes, d.status, d.outputPath].map(csvEscape).join(","));
+      rows.push([d.index, d.lineId, d.originalName, d.mixStart, d.mixEnd, d.duration, d.headTrimMsApplied, d.headTrimReason, d.outputFileName, d.exists, d.sizeBytes, d.status, d.outputPath].map(csvEscape).join(","));
     }
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.1.5",
+      appVersion: APP_VERSION,
       projectId: project.projectId,
       projectName: project.projectName,
       checkedAt: new Date().toISOString(),
@@ -2875,6 +4069,8 @@
       missing: missing,
       empty: empty,
       attachedTakes: attachedTakes,
+      headTrimmedItemCount: actualHeadTrimmedItemCount,
+      headTrimTotalMs: actualHeadTrimTotalMs,
       ok: missing === 0 && empty === 0,
       details: details
     };
@@ -2891,8 +4087,12 @@
       missing: missing,
       empty: empty,
       attachedTakes: attachedTakes,
+      headTrimmedItemCount: actualHeadTrimmedItemCount,
+      headTrimTotalMs: actualHeadTrimTotalMs,
       ok: report.ok
     };
+    project.lastMixSplitPlan.headTrimmedItemCount = actualHeadTrimmedItemCount;
+    project.lastMixSplitPlan.headTrimTotalMs = actualHeadTrimTotalMs;
     project.updatedAt = new Date().toISOString();
     saveProject(project);
     return {
@@ -2902,6 +4102,8 @@
       missing: missing,
       empty: empty,
       attachedTakes: attachedTakes,
+      headTrimmedItemCount: actualHeadTrimmedItemCount,
+      headTrimTotalMs: actualHeadTrimTotalMs,
       csvPath: normalizeSlashes(csvPath),
       jsonPath: normalizeSlashes(jsonPath),
       problemFiles: problemFiles
@@ -2940,6 +4142,7 @@
         var outRel = normalizeSlashes(it.outputRelativePath || "").toLowerCase();
         var outName = String(it.outputFileName || "").toLowerCase();
         if ((outRel && outRel === normRel) || (outName && outName === lowerName)) {
+          if (typeof it.actualOutputDuration === "number") return it.actualOutputDuration;
           if (typeof it.duration === "number") return it.duration;
           if (typeof it.mixEnd === "number" && typeof it.mixStart === "number") return Number((it.mixEnd - it.mixStart).toFixed(3));
         }
@@ -3035,7 +4238,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.1.5",
+      appVersion: APP_VERSION,
       projectId: project.projectId,
       projectName: project.projectName,
       checkedAt: new Date().toISOString(),
@@ -3053,7 +4256,7 @@
     modules.fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2), "utf8");
     project.lastAutoAttachTakes = { csvPath: normalizeSlashes(csvPath), jsonPath: normalizeSlashes(jsonPath), attached: attached, found: found, missing: missing, checkedAt: report.checkedAt };
     project.updatedAt = new Date().toISOString();
-    project.appVersion = "1.1.0";
+    project.appVersion = APP_VERSION;
     saveProject(project);
     return { found: found, attached: attached, missing: missing, missingNames: missingNames, csvPath: normalizeSlashes(csvPath), jsonPath: normalizeSlashes(jsonPath) };
   }
@@ -3141,7 +4344,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.1.5",
+      appVersion: APP_VERSION,
       projectId: project.projectId,
       projectName: project.projectName,
       checkedAt: new Date().toISOString(),
@@ -3256,7 +4459,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.1.5",
+      appVersion: APP_VERSION,
       checkedAt: new Date().toISOString(),
       packageRoot: normalizeSlashes(packageRoot),
       projectJsonExists: true,
@@ -3520,6 +4723,20 @@
     if (!project || !project.lines || !project.lines.length) throw new Error("Önce proje oluştur veya yükle.");
     var modules = getNodeModules();
     var mode = (options && options.mode) || "position";
+    var requestedHeadTrimMs = options && Object.prototype.hasOwnProperty.call(options, "headTrimMs")
+      ? options.headTrimMs
+      : project.recordingHeadTrimMs;
+    var requestedHeadTrimEnabled = options && Object.prototype.hasOwnProperty.call(options, "headTrimEnabled")
+      ? options.headTrimEnabled
+      : project.recordingHeadTrimEnabled;
+    var requestedHeadTrimMode = options && Object.prototype.hasOwnProperty.call(options, "headTrimMode")
+      ? options.headTrimMode
+      : project.recordingHeadTrimMode;
+    normalizeRecordingHeadTrimSettings(project, {
+      recordingHeadTrimEnabled: requestedHeadTrimEnabled,
+      recordingHeadTrimMode: requestedHeadTrimMode,
+      recordingHeadTrimMs: requestedHeadTrimMs
+    });
     var clips = [];
     for (var k = 0; k < (liveClips || []).length; k++) {
       var lc = liveClips[k];
@@ -3605,6 +4822,9 @@
       unmatched: project.lines.length - attached,
       extraClips: Math.max(0, clips.length - attached),
       mode: mode,
+      headTrimEnabled: project.recordingHeadTrimEnabled,
+      headTrimMode: project.recordingHeadTrimMode,
+      headTrimMs: project.recordingHeadTrimMs,
       warnings: warnings
     };
   }
@@ -3768,7 +4988,7 @@
     var plan = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.1.5",
+      appVersion: APP_VERSION,
       createdAt: new Date().toISOString(),
       projectId: project.projectId,
       projectName: project.projectName,
@@ -3883,7 +5103,7 @@
     var report = {
       schemaVersion: 1,
       app: "AU Dub Panel",
-      appVersion: "1.1.5",
+      appVersion: APP_VERSION,
       checkedAt: new Date().toISOString(),
       projectRootPath: normalizeSlashes(project.projectRootPath),
       planPath: normalizeSlashes(planPath),
@@ -3934,7 +5154,9 @@
     loadProjectFromFile: loadProjectFromFile,
     loadProjectFromPath: loadProjectFromPath,
     packageProject: packageProject,
+    packageProjectAsync: packageProjectAsync,
     zipFolder: zipFolder,
+    resolveSessionFilePath: resolveSessionFilePath,
     waitForFileStable: waitForFileStable,
     revealFolder: revealFolder,
     pickFolderDialog: pickFolderDialog,

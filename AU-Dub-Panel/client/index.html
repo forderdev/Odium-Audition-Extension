@@ -75,7 +75,7 @@
       </div>
       <div class="topbar-end">
         <button id="updateBtn" class="updateBtn hidden" type="button">⟳ Güncelle</button>
-        <span class="ver">v1.2</span>
+        <span class="ver">v1.13</span>
         <span id="statusPill" class="pill">Hazır</span>
       </div>
     </header>
@@ -137,6 +137,23 @@
                 <option value="order">Sıraya göre (1. kayıt, 1. replik)</option>
               </select>
             </label>
+            <label class="rememberRow headTrimToggle" title="Final mix bölünürken kayıt başlangıcındaki tuş sesini temizler. Kaynak session değiştirilmez.">
+              <input id="voHeadTrimEnabled" type="checkbox" checked />
+              <span>Başlangıç tuş sesi koruması</span>
+            </label>
+            <div id="voHeadTrimOptions" class="headTrimOptions">
+              <label class="field">
+                <span class="field-label">Yöntem</span>
+                <select id="voHeadTrimMode" class="select">
+                  <option value="auto">Otomatik (önerilen)</option>
+                  <option value="fixed">Sabit süre</option>
+                </select>
+              </label>
+              <label id="voHeadTrimMsField" class="field hidden" title="Sabit modda kayıt başlangıcından atlanacak süre. Kısa kayıt koruması her zaman aktiftir.">
+                <span class="field-label">Kırpma süresi (ms)</span>
+                <input id="voHeadTrimMs" class="input" type="number" min="0" max="1000" step="50" value="250" />
+              </label>
+            </div>
             <button id="voAlignTakesBtn" class="btn btn-primary block" type="button">Kayıtları Eşle</button>
             <button id="voReplaceTakeBtn" class="btn-ghost block" type="button">Bir repliğin take'ini elle düzelt…</button>
           </div>
@@ -147,10 +164,6 @@
           <div class="step-card">
             <h3 class="step-title">Projeyi mixçiye gönder</h3>
             <p class="step-hint">Proje kaydedilir, paket .sesx'in klasöründe oluşturulur, .sesx ile birlikte zip'lenir ve klasör açılır. Zip'i mixçiye gönder.</p>
-            <label class="rememberRow" title="Paketteki kayıt dosyalarının ortalama düzeyi (dB), eşleştikleri orijinallerin ortalama düzeyine çekilir. Senin session'ındaki dosyalara dokunulmaz; mixçi projeyi açtığında sesler eşitlenmiş duyulur. Tepe -1 dBFS'i aşmayacak şekilde korunur.">
-              <input id="voLevelMatch" type="checkbox" checked />
-              <span>Kayıt düzeyini orijinale eşitle (ortalama dB)</span>
-            </label>
             <button id="voSendToMixerBtn" class="btn btn-primary block" type="button">Paketle + .sesx ile Zip'le</button>
           </div>
         </li>
@@ -216,6 +229,10 @@
               <button id="mxPickMixBtn" class="btn-ghost sm" type="button"><svg class="ico"><use href="#ico-wave"/></svg> Seç…</button>
               <input id="mxMixPathInput" class="input pickinput" type="text" placeholder="mixlenmiş tek dosya yolu (seç ya da elle yapıştır)" />
             </div>
+            <label class="rememberRow" title="Mix bölündükten sonra her parçanın ortalama düzeyi eşleştiği orijinal sesin ortalama düzeyine çekilir. Tepe -1 dBFS'i aşmayacak şekilde korunur.">
+              <input id="mxLevelMatch" type="checkbox" checked />
+              <span>Mix sonrası parçaları orijinal düzeye eşitle</span>
+            </label>
             <button id="mxSplitBtn" class="btn btn-primary block" type="button">Mix Dosyasını Yükle ve Böl</button>
           </div>
         </li>

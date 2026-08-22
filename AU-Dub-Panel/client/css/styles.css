@@ -138,6 +138,9 @@ b{ color:var(--txt); font-weight:650; }
   transform:rotate(-45deg) translate(0,-1px);
 }
 .rememberRow input:focus-visible{ outline:none; box-shadow:0 0 0 3px var(--acc-soft); }
+.headTrimToggle{ margin-bottom:10px; }
+.headTrimOptions{ margin:0 0 12px 24px; padding-left:10px; border-left:1px solid var(--line-2); }
+.headTrimOptions .field:last-child{ margin-bottom:0; }
 
 /* ============================================================
    ÜST BAR

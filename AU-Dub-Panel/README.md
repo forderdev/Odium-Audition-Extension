@@ -1,4 +1,4 @@
-# AU Dub Panel v1.2.0
+# AU Dub Panel v1.13.0
 
 Adobe Audition için oyun dublaj workflow paneli. İki rol için tasarlandı: **Seslendirme Sanatçısı** ve **Mixçi**. Panel açılınca tek bir rol seçimi sunar; her rol sadece kendi 3 adımını görür. Tüm eski/ileri araçlar "Gelişmiş / Tam Panel" katlanır bölümünde durur.
 
@@ -20,6 +20,7 @@ Adobe Audition için oyun dublaj workflow paneli. İki rol için tasarlandı: **
 
 - Orijinal ses klasörü seçme
 - Dosyaları isme göre doğal sıralama
+- Canlı kayıt başlangıcındaki tuş seslerini otomatik sessizlik sınırıyla veya sabit süreyle kırpma
 - Her replik için timeline başlangıç/bitiş taslağı üretme
 - Geniş export preset listesi
 - `.audub/project.json` kaydetme ve geri yükleme
@@ -115,6 +116,85 @@ Not: `PlayerDebugMode` değeri **string ("1")** olmalı (DWORD değil). Doğru C
 4. `Mix Dosyasını Ayır` butonuna basın.
 5. `Ayrılanları Doğrula ve Take Yap` butonuna basın.
 6. Sonrasında normal `Export Plan Kaydet → FFmpeg Export Çalıştır → Export Sonucu Doğrula` akışını çalıştırın.
+
+## v1.13.0
+
+- Kaynak session eski bir `_AU_Dub_Package_` klasorunun icindeyken `Imported Files` ve `Recorded Files` artik yanlislikla atlanmaz.
+- Temizlenen canli take ile session medya kopyasi farkli klasorlerde olsa bile klip adiyla eslestirilir.
+- Session'daki orijinal medya baglantilari paket `Audio/Original` kopyalarina cevrilir ve tasinabilir goreli yol eklenir.
+- Paket `.sesx` referanslarinin tumunun paket icinde gercek bir dosyaya karsilik gelmesi regresyon testleriyle dogrulanir.
+
+## v1.12.0
+
+- Paketleme sirasinda tespit edilen klavye bolumu `Audio/Takes` ve `.sesx`in kullandigi session medya kopyalarinda sessize alinir.
+- Temizlenen dosyanin toplam suresi degismez; Audition clip konumlari ve original/take hizasi kaymaz.
+- Uygulanan temizleme miktari take metadata'sina yazilir ve final mix split ayni miktari kesin olarak keser.
+- Paket `.sesx` icindeki mutlak medya yollari paket kokune yonlendirilir; ayni bilgisayarda eski ham dosyanin acilmasi engellenir.
+
+## v1.11.0
+
+- Otomatik baslangic temizligi artik yalnizca ilk 120 ms icindeki darbeye bagli degil; 120 ms suren konusma baslangicini arar.
+- Parcalanmis dusuk seviye alanlar ve gec gelen klavye sesleri, konusmadan once 80 ms koruma payi birakilarak temizlenir.
+- 180 ms'den kisa belirsiz kararlar, 1.2 saniyeyi asan kirpmalar ve geriye 250 ms'den az ses birakan sonuclar reddedilir.
+- Gercek hata desenini kapsayan FFmpeg regresyonu ile konusmayla ust uste binen tus sesinde insan sesinin korundugu dogrulanir.
+
+## v1.10.0
+
+- Düzey eşitleme seslendirmen paketleme adımından kaldırılıp mixçinin mix bölme adımına taşındı.
+- `Mix sonrası parçaları orijinal düzeye eşitle` checkbox'ı varsayılan açık gelir; eski project.json dosyaları da açık kabul edilir.
+- Split başlamadan önce tüm repliklerin orijinal referansı doğrulanır; eksik referans varsa sessizce devam etmek yerine işlem durdurulur.
+- Gerçek FFmpeg testi, split parçasının orijinal ortalama dB'sine geldiğini ve toplu export sonrasında aynı düzeyin korunduğunu doğrular.
+
+## v1.9.0
+
+- Canlı Audition kayıtları yalnızca `liveFilePath` taşısa bile artık paketin `Audio/Takes` klasörüne kopyalanır.
+- Düzey eşitleme, `.sesx` klasörünün dışında bulunan canlı kayıtların asıl paket take kopyalarına uygulanır.
+- Aynı kayıt session medyasında da gerekiyorsa önceden eşitlenmiş çıktı yeniden kullanılır; gereksiz ikinci FFmpeg dönüşümü yapılmaz.
+- Zaten hedef düzeye yakın kayıtlar hata yerine "değişiklik gerekmedi" olarak raporlanır.
+
+## v1.8.0
+
+- Yüzlerce parçalık mix bölmelerinde FFmpeg'in teknik stderr dökümünün panel loguna binlerce satır akması engellendi.
+- Split FFmpeg çağrıları `-loglevel error -nostats` ile yalnız gerçek hataları raporlar; kullanıcı ilerlemesi kısa `Split [i/N]` satırlarıyla devam eder.
+- Panel logu 50 ms aralıklarla toplu güncellenir ve 120.000 karakterle sınırlandırılır; uzun işlemlerde renderer'ın log kuyruğunda kilitlenmesi önlenir.
+- Canlı teşhiste 232 parçanın tamamının başarıyla üretildiği ve bağlandığı doğrulandı.
+
+## v1.7.0
+
+- `Başlangıç tuş sesi koruması` checkbox'ı eklendi; kapatıldığında hiçbir başlangıç kırpması yapılmaz.
+- Varsayılan `Otomatik` mod, ilk 120 ms içindeki kısa tuş darbesinden sonra en az 60 ms güvenli sessizlik arar ve konuşma başlamadan 15 ms pay bırakır.
+- Tuş sesi konuşmayla üst üste biniyor veya güvenli sınır bulunamıyorsa otomatik mod kırpma yapmaz; insan sesi korunur.
+- Otomatik kırpma en fazla clip süresinin yüzde 25'i ve 1.2 saniyeyle sınırlıdır. `Sabit süre` modu seçildiğinde 0-1000 ms alanı görünür.
+- Uygulanan gerçek otomatik kırpma miktarı `.audub/head-trim-results.json` dosyasına ve panel günlüğüne yazılır.
+
+## v1.6.0
+
+- Seslendirmen akışına `Başlangıç tuş sesi kırpma (ms)` ayarı eklendi; varsayılan değer 250 ms, aralık 0-1000 ms'dir.
+- Kırpma yalnızca final mix bölme sınırına uygulanır; Audition session'ı ve kaynak kayıt dosyaları değiştirilmez.
+- Çok kısa kayıtlarda konuşmayı korumak için kırpma, clip süresinin en fazla yüzde 25'iyle sınırlandırılır ve en az 50 ms ses bırakılır.
+- Daha önce bölünmüş `mix_split` take'leri tekrar kırpılmaz; plan ve panel günlüğü uygulanan toplam kırpma miktarını gösterir.
+
+## v1.5.0
+
+- Canlı teşhiste `.sesx` yazımının 3 saniyede tamamlandığı, paneli kilitleyen bölümün yüzlerce senkron FFmpeg düzey ölçümü ve dönüşümü olduğu doğrulandı.
+- Düzey ölçümü, session medyası kopyalama ve gain uygulama işlemleri asenkron ve sınırlı eşzamanlı çalışacak şekilde taşındı.
+- Panel paketleme boyunca gerçek aşamayı ve dosya ilerlemesini gösterir; renderer event loop'u yanıt vermeye devam eder.
+- `.sesx` stabilite kontrolündeki `statSync` kaldırıldı; cevap vermeyen disk sorguları ayrı watchdog ile zaman aşımına uğrar.
+- Session medya taraması eski ve yeni `_AU_Dub_Package_` klasörlerine girmediği için tekrar paketleri boşuna taramaz.
+
+## v1.4.0
+
+- Audition'ın session dosyası yerine klasör yolu döndürdüğü durumda yol, `displayName` ile gerçek `.sesx` dosyasına tamamlanır.
+- `.sesx` stabilite bekleyicisi klasör yolu ve kalıcı izin hatalarında zaman aşımını beklemeden durur.
+- Gerçek disk yazımı sırasında geçen süre ve buton ilerlemesi görünür; azami ek bekleme 90 saniyeden 45 saniyeye indirildi.
+- Host tarafında session yolu `fullName`, `file`, `path` sırasıyla daha dayanıklı okunur.
+
+## v1.3.0
+
+- Başka bilgisayara veya klasöre taşınan paketlerde `project.json` içindeki eski mutlak `projectRootPath` artık kullanılmaz.
+- Proje kökü, seçilen `.audub/project.json` dosyasının gerçek konumuna otomatik bağlanır; mix bölmede oluşan `EPERM mkdir .audub` hatası giderildi.
+- Gerçek klasör izin hataları artık hedef yol ve hata koduyla daha anlaşılır gösterilir.
+- Yeni proje, paket ve raporların `appVersion` alanları yayın sürümüyle eşitlendi.
 
 ## v1.2.0
 

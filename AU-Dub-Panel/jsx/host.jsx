@@ -686,6 +686,24 @@ function AU_readTakeClips(payloadJson) {
   }
 }
 
+function AU_pathValue(value) {
+  try {
+    if (!value) return "";
+    if (value.fsName) return String(value.fsName);
+    if (value.fullName) return String(value.fullName);
+    var text = String(value);
+    return (text === "undefined" || text === "null") ? "" : text;
+  } catch (e) { return ""; }
+}
+
+function AU_documentPath(doc) {
+  var p = "";
+  try { p = AU_pathValue(doc.fullName); } catch (e1) {}
+  try { if (!p) p = AU_pathValue(doc.file); } catch (e2) {}
+  try { if (!p) p = AU_pathValue(doc.path); } catch (e3) {}
+  return p;
+}
+
 /* Aktif session'ı kaydeder (Ctrl+S). dirty bayrağıyla başarı doğrulanır.
    Daha önce hiç kaydedilmemişse Audition Save As diyalogu açar (kullanıcı yer seçer). */
 function AU_saveSession() {
@@ -747,9 +765,7 @@ function AU_saveSession() {
 
     var stillDirty = dirtyNow();
     var saved = !stillDirty;
-    var p = "";
-    try { p = String(doc.path); } catch (e) {}
-    if (p === "undefined" || p === "null") p = "";
+    var p = AU_documentPath(doc);
 
     var extra = "{\"path\":\"" + AU_escapeJsonString(p) + "\",\"saved\":" + (saved ? "true" : "false") +
                 ",\"wasDirty\":" + (wasDirty ? "true" : "false") + ",\"waitMs\":" + waitMs + ",\"attempts\":\"" + AU_escapeJsonString(attempts.join(", ")) + "\"}";
@@ -766,9 +782,7 @@ function AU_getSessionPath() {
   try {
     var doc = app.activeDocument;
     if (!doc) return AU_result(false, "Aktif belge yok. Önce session'ı aç.");
-    var p = "";
-    try { p = String(doc.path); } catch (e) {}
-    if (p === "undefined" || p === "null") p = "";
+    var p = AU_documentPath(doc);
     var disp = "";
     try { disp = String(doc.displayName); } catch (e2) {}
     return AU_result(true, p, "{\"path\":\"" + AU_escapeJsonString(p) + "\",\"displayName\":\"" + AU_escapeJsonString(disp) + "\"}");

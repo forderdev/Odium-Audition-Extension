@@ -62,10 +62,14 @@
     voOriginalPathInput: document.getElementById("voOriginalPathInput"),
     voPlaceOriginalsBtn: document.getElementById("voPlaceOriginalsBtn"),
     voAlignMode: document.getElementById("voAlignMode"),
+    voHeadTrimEnabled: document.getElementById("voHeadTrimEnabled"),
+    voHeadTrimOptions: document.getElementById("voHeadTrimOptions"),
+    voHeadTrimMode: document.getElementById("voHeadTrimMode"),
+    voHeadTrimMsField: document.getElementById("voHeadTrimMsField"),
+    voHeadTrimMs: document.getElementById("voHeadTrimMs"),
     voAlignTakesBtn: document.getElementById("voAlignTakesBtn"),
     voReplaceTakeBtn: document.getElementById("voReplaceTakeBtn"),
     voSendToMixerBtn: document.getElementById("voSendToMixerBtn"),
-    voLevelMatch: document.getElementById("voLevelMatch"),
     voAttachFromFolderBtn: document.getElementById("voAttachFromFolderBtn"),
     voAutoAttachBtn: document.getElementById("voAutoAttachBtn"),
     voHealthBtn: document.getElementById("voHealthBtn"),
@@ -80,6 +84,7 @@
     mxBuildFromPosBtn: document.getElementById("mxBuildFromPosBtn"),
     mxPickMixBtn: document.getElementById("mxPickMixBtn"),
     mxMixPathInput: document.getElementById("mxMixPathInput"),
+    mxLevelMatch: document.getElementById("mxLevelMatch"),
     mxSplitBtn: document.getElementById("mxSplitBtn"),
     mxExportPreset: document.getElementById("mxExportPreset"),
     mxPresetDetails: document.getElementById("mxPresetDetails"),
@@ -93,10 +98,28 @@
     mxHealthBtn: document.getElementById("mxHealthBtn")
   };
 
+  var LOG_MAX_CHARS = 120000;
+  var pendingLogText = "";
+  var logFlushTimer = null;
+
+  function flushLog() {
+    logFlushTimer = null;
+    if (!els.log || !pendingLogText) return;
+    var next = els.log.textContent + pendingLogText;
+    pendingLogText = "";
+    if (next.length > LOG_MAX_CHARS) {
+      next = next.slice(next.length - LOG_MAX_CHARS);
+      var firstLineEnd = next.indexOf("\n");
+      if (firstLineEnd >= 0) next = next.slice(firstLineEnd + 1);
+    }
+    els.log.textContent = next;
+    els.log.scrollTop = els.log.scrollHeight;
+  }
+
   function log(message, type) {
     var prefix = new Date().toLocaleTimeString() + "  ";
-    els.log.textContent += prefix + message + "\n";
-    els.log.scrollTop = els.log.scrollHeight;
+    pendingLogText += prefix + message + "\n";
+    if (!logFlushTimer) logFlushTimer = setTimeout(flushLog, 50);
     if (type) els.statusPill.textContent = message;
   }
 
@@ -207,6 +230,54 @@
   }
   function getVal(el) { return el && el.value ? String(el.value).trim() : ""; }
 
+  function getRecordingHeadTrimMs() {
+    var value = els.voHeadTrimMs ? Number(els.voHeadTrimMs.value) : 250;
+    if (!isFinite(value)) value = 250;
+    value = Math.max(0, Math.min(1000, Math.round(value)));
+    if (els.voHeadTrimMs) els.voHeadTrimMs.value = value;
+    return value;
+  }
+
+  function getRecordingHeadTrimSettings() {
+    return {
+      recordingHeadTrimEnabled: !els.voHeadTrimEnabled || els.voHeadTrimEnabled.checked,
+      recordingHeadTrimMode: els.voHeadTrimMode && els.voHeadTrimMode.value === "fixed" ? "fixed" : "auto",
+      recordingHeadTrimMs: getRecordingHeadTrimMs()
+    };
+  }
+
+  function syncRecordingHeadTrimControls() {
+    var settings = getRecordingHeadTrimSettings();
+    if (els.voHeadTrimOptions) els.voHeadTrimOptions.classList.toggle("hidden", !settings.recordingHeadTrimEnabled);
+    if (els.voHeadTrimMsField) els.voHeadTrimMsField.classList.toggle("hidden", !settings.recordingHeadTrimEnabled || settings.recordingHeadTrimMode !== "fixed");
+  }
+
+  function applyRecordingHeadTrimSettings(project) {
+    if (!project) return getRecordingHeadTrimSettings();
+    var settings = getRecordingHeadTrimSettings();
+    project.recordingHeadTrimEnabled = settings.recordingHeadTrimEnabled;
+    project.recordingHeadTrimMode = settings.recordingHeadTrimMode;
+    project.recordingHeadTrimMs = settings.recordingHeadTrimMs;
+    return settings;
+  }
+
+  function describeRecordingHeadTrim(project) {
+    if (!project || project.recordingHeadTrimEnabled === false) return "kapalı";
+    return project.recordingHeadTrimMode === "fixed"
+      ? "sabit " + Number(project.recordingHeadTrimMs || 0) + " ms"
+      : "otomatik";
+  }
+
+  function logMixSplitHeadTrim(result) {
+    if (!result || result.recordingHeadTrimEnabled === false) {
+      log("Başlangıç tuş sesi koruması kapalı.", "Hazır");
+    } else if (result.recordingHeadTrimMode === "auto") {
+      log("Otomatik tuş sesi analizi " + result.headTrimAutoCandidateCount + " canlı kayıtta çalışacak; konuşmayla çakışan şüpheli sesler kesilmeyecek.", "Hazır");
+    } else {
+      log("Sabit başlangıç kırpma: " + result.headTrimmedItemCount + " kayıtta toplam " + result.headTrimTotalMs + " ms (ayar " + result.recordingHeadTrimMs + " ms).", "Hazır");
+    }
+  }
+
   // Uzantı klasörünü ve içine kurulan ffmpeg.exe'yi bul (INSTALL.bat tools/ffmpeg.exe koyar).
   function getExtensionDir() {
     try {
@@ -271,7 +342,7 @@
     }
 
     var selectedTakeCount = project.lines.filter(function (line) { return !!line.selectedTakeId; }).length;
-    els.summary.textContent = project.lines.length + " replik bulundu. Bağlı seçili take: " + selectedTakeCount + ". Boşluk: " + project.gapSeconds + " sn. Preset: " + ProjectStore.describePreset(project.exportPreset);
+    els.summary.textContent = project.lines.length + " replik bulundu. Bağlı seçili take: " + selectedTakeCount + ". Boşluk: " + project.gapSeconds + " sn. Tuş sesi koruması: " + describeRecordingHeadTrim(project) + ". Preset: " + ProjectStore.describePreset(project.exportPreset);
     els.lineList.innerHTML = project.lines.slice(0, 200).map(function (line) {
       var duration = line.originalDuration !== null ? line.originalDuration + " sn" : "süre okunamadı";
       var range = line.timelineEnd !== null ? line.timelineStart + " → " + line.timelineEnd : line.timelineStart + " → ?";
@@ -289,6 +360,11 @@
     if (!project) return;
     if (project.projectName) els.projectName.value = project.projectName;
     if (typeof project.gapSeconds !== "undefined") els.gapSeconds.value = project.gapSeconds;
+    if (els.voHeadTrimEnabled) els.voHeadTrimEnabled.checked = project.recordingHeadTrimEnabled !== false;
+    if (els.voHeadTrimMode) els.voHeadTrimMode.value = project.recordingHeadTrimMode === "fixed" ? "fixed" : "auto";
+    if (els.voHeadTrimMs && typeof project.recordingHeadTrimMs !== "undefined") els.voHeadTrimMs.value = project.recordingHeadTrimMs;
+    if (els.mxLevelMatch) els.mxLevelMatch.checked = project.levelMatchOriginal !== false;
+    syncRecordingHeadTrimControls();
     if (project.exportPreset && project.exportPreset.id) {
       var exists = Array.prototype.some.call(els.exportPreset.options, function (opt) { return opt.value === project.exportPreset.id; });
       if (exists) els.exportPreset.value = project.exportPreset.id;
@@ -311,6 +387,31 @@
       log("Export preset değişti: " + state.project.exportPreset.name);
     }
   });
+
+  function onRecordingHeadTrimChanged() {
+    syncRecordingHeadTrimControls();
+    var settings = getRecordingHeadTrimSettings();
+    if (!state.project) return;
+    applyRecordingHeadTrimSettings(state.project);
+    state.project.updatedAt = new Date().toISOString();
+    renderProject(state.project);
+    try { ProjectStore.saveProject(state.project); } catch (ignoreSave) {}
+    log("Başlangıç tuş sesi koruması " + (settings.recordingHeadTrimEnabled ? (settings.recordingHeadTrimMode === "auto" ? "otomatik" : "sabit " + settings.recordingHeadTrimMs + " ms") : "kapalı") + " olarak ayarlandı.", "Hazır");
+  }
+
+  if (els.voHeadTrimEnabled) els.voHeadTrimEnabled.addEventListener("change", onRecordingHeadTrimChanged);
+  if (els.voHeadTrimMode) els.voHeadTrimMode.addEventListener("change", onRecordingHeadTrimChanged);
+  if (els.voHeadTrimMs) els.voHeadTrimMs.addEventListener("change", onRecordingHeadTrimChanged);
+  if (els.mxLevelMatch) {
+    els.mxLevelMatch.addEventListener("change", function () {
+      if (!state.project) return;
+      state.project.levelMatchOriginal = !!els.mxLevelMatch.checked;
+      state.project.updatedAt = new Date().toISOString();
+      try { ProjectStore.saveProject(state.project); } catch (ignoreSave) {}
+      log(state.project.levelMatchOriginal ? "Mix sonrası düzey eşitleme açıldı." : "Mix sonrası düzey eşitleme kapatıldı.", "Hazır");
+    });
+  }
+  syncRecordingHeadTrimControls();
 
   els.originalFolder.addEventListener("change", function (event) {
     state.files = Array.prototype.slice.call(event.target.files || []);
@@ -339,9 +440,13 @@
 
     setBusy("Project JSON oluşturuluyor");
     try {
+      var headTrimSettings = getRecordingHeadTrimSettings();
       state.project = await ProjectStore.buildProjectFromFiles(state.files, {
         projectName: els.projectName.value,
         gapSeconds: els.gapSeconds.value,
+        recordingHeadTrimEnabled: headTrimSettings.recordingHeadTrimEnabled,
+        recordingHeadTrimMode: headTrimSettings.recordingHeadTrimMode,
+        recordingHeadTrimMs: headTrimSettings.recordingHeadTrimMs,
         exportPresetId: els.exportPreset.value
       }, function (progress) { log(progress); });
 
@@ -624,12 +729,14 @@
       if (!state.mixedFile && !(state.project.lastMixSplitPlan && state.project.lastMixSplitPlan.mixFileAbsolutePath)) { log("Önce birleştirilmiş/mikslenmiş tek dosyayı seçin.", "Uyarı"); return; }
       try {
         setBusy("Mix ayırma script hazırlanıyor");
+        applyMixLevelMatchSetting();
         var result = ProjectStore.createFfmpegMixSplitScript(state.project, state.mixedFile);
         state.mixedFile = null;
         renderProject(state.project);
         log("Mix ayırma script hazır: " + result.ps1Path, "Hazır");
         log("BAT: " + result.batPath);
         log("Split plan: " + result.planPath + " / segment: " + result.itemCount);
+        logMixSplitHeadTrim(result);
         log("Çıkış klasörü: " + result.outputDir);
       } catch (e) {
         log("Mix ayırma script oluşturulamadı: " + e.message, "Hata");
@@ -845,9 +952,13 @@
       btnStart(els.voPlaceOriginalsBtn);
       setBusy("Orijinaller hazırlanıyor");
       try {
+        var headTrimSettings = getRecordingHeadTrimSettings();
         state.project = await ProjectStore.buildProjectFromFolder(voDir, {
           projectName: els.projectName.value,
           gapSeconds: els.gapSeconds.value,
+          recordingHeadTrimEnabled: headTrimSettings.recordingHeadTrimEnabled,
+          recordingHeadTrimMode: headTrimSettings.recordingHeadTrimMode,
+          recordingHeadTrimMs: headTrimSettings.recordingHeadTrimMs,
           exportPresetId: els.exportPreset.value
         }, function (progress) { log(progress); });
         syncUiFromProject(state.project);
@@ -901,9 +1012,18 @@
         log("Kayıt dosya yolu okunan: " + clipsWithPath + "/" + clips.length + (clipsWithPath ? "" : " - sorun değil; düzey eşitleme paketlemede clip adından dosya eşleştirecek."));
         if (!clips.length) { log("Track 2'de hiç clip yok. Kayıtlarını 2. track'e aldığından emin ol.", "Uyarı"); btnFail(els.voAlignTakesBtn); return; }
         try {
-          var result = ProjectStore.alignTakesFromLiveClips(state.project, clips, { mode: els.voAlignMode ? els.voAlignMode.value : "position" });
+          var headTrimSettings = getRecordingHeadTrimSettings();
+          var result = ProjectStore.alignTakesFromLiveClips(state.project, clips, {
+            mode: els.voAlignMode ? els.voAlignMode.value : "position",
+            headTrimEnabled: headTrimSettings.recordingHeadTrimEnabled,
+            headTrimMode: headTrimSettings.recordingHeadTrimMode,
+            headTrimMs: headTrimSettings.recordingHeadTrimMs
+          });
           renderProject(state.project);
           log("Eşleme tamam: " + result.attached + "/" + result.totalLines + " replik bağlandı (" + result.mode + "). Eşleşmeyen replik: " + result.unmatched + ", fazla kayıt: " + result.extraClips + ".", result.unmatched ? "Uyarı" : "Hazır");
+          if (!result.headTrimEnabled) log("Başlangıç tuş sesi koruması kapalı.", "Hazır");
+          else if (result.headTrimMode === "auto") log("Final kesimde başlangıç otomatik incelenecek; yalnızca güvenli sessizlik sınırı bulunursa kırpılacak.", "Hazır");
+          else log("Final kesimde sabit " + result.headTrimMs + " ms kırpma uygulanacak; kısa kayıtlar korunacak.", "Hazır");
           if (result.warnings && result.warnings.length) log("Uyarılar: " + result.warnings.slice(0, 10).join(" | ") + (result.warnings.length > 10 ? " ..." : ""), "Uyarı");
           if (result.unmatched) log("Eşleşmeyenler için 'Seçili repliğin take'ini elle düzelt' kullanabilirsin.", "Uyarı");
           btnDone(els.voAlignTakesBtn);
@@ -976,8 +1096,15 @@
       AuditionBridge.getSessionPath(function (raw) {
         var parsed = parseBridgeResult(raw);
         var sesxPath = (parsed && parsed.ok && parsed.extra && parsed.extra.path) ? parsed.extra.path : "";
+        var sesxDisplayName = (parsed && parsed.extra && parsed.extra.displayName) ? parsed.extra.displayName : "";
         if (!sesxPath) {
           failPackageFlow(btn, "Session .sesx yolu bulunamadı. Audition Save As penceresinde dosyayı kaydedip tekrar dene.", "Hata");
+          return;
+        }
+
+        try { sesxPath = ProjectStore.resolveSessionFilePath(sesxPath, sesxDisplayName); }
+        catch (resolveErr) {
+          failPackageFlow(btn, "Session .sesx yolu çözülemedi: " + resolveErr.message, "Hata");
           return;
         }
 
@@ -986,26 +1113,87 @@
         setBusy(".sesx yazımı bekleniyor");
         log(".sesx dosyasının diske tamamen yazılması bekleniyor...", "Hazır");
 
-        ProjectStore.waitForFileStable(sesxPath, { stableMs: 3000, timeoutMs: 90000, intervalMs: 250 }).then(function (stableInfo) {
+        var lastWaitSecond = -1;
+        ProjectStore.waitForFileStable(sesxPath, {
+          stableMs: 3000,
+          timeoutMs: 45000,
+          intervalMs: 250,
+          onProgress: function (progress) {
+            var elapsedSecond = Math.floor(Number(progress.elapsedMs || 0) / 1000);
+            if (elapsedSecond === lastWaitSecond) return;
+            lastWaitSecond = elapsedSecond;
+            setBusy(".sesx yazımı bekleniyor (" + elapsedSecond + " sn)");
+            btnProgress(btn, Math.min(24, 15 + Math.floor(elapsedSecond / 5)));
+          }
+        }).then(function (stableInfo) {
           log(".sesx yazımı tamamlandı: " + stableInfo.path + " (" + Math.max(1, Math.round(stableInfo.sizeBytes / 1024)) + " KB)", "Hazır");
 
           try {
-            btnProgress(btn, 25);
+            applyRecordingHeadTrimSettings(state.project);
             ProjectStore.saveProject(state.project);
-            setBusy("Paket + düzey eşitleme");
-            var result = ProjectStore.packageProject(state.project, {
-              sesxPath: sesxPath,
-              levelMatchOriginal: !!(els.voLevelMatch && els.voLevelMatch.checked),
-              ffmpegPath: bundledFfmpeg() || ""
-            });
+          } catch (saveError) {
+            failPackageFlow(btn, "Proje bilgisi kaydedilemedi: " + saveError.message, "Hata");
+            return;
+          }
+
+          btnProgress(btn, 25);
+          setBusy("Paket hazırlanıyor");
+          var lastPackagePhase = "";
+          ProjectStore.packageProjectAsync(state.project, {
+            sesxPath: sesxPath,
+            levelMatchOriginal: false,
+            ffmpegPath: bundledFfmpeg() || "",
+            onProgress: function (progress) {
+              var completed = Number(progress.completed || 0);
+              var total = Number(progress.total || 0);
+              var phase = progress.phase || "";
+              if (phase !== lastPackagePhase) {
+                lastPackagePhase = phase;
+                if (phase === "measure") log("Ses düzeyleri asenkron ölçülüyor; panel kullanılabilir kalacak.", "Hazır");
+                else if (phase === "level_takes") log("Paket take dosyalarına düzey eşitleme uygulanıyor...", "Hazır");
+                else if (phase === "sanitize_takes") log("Klavye sesi bulunan take kopyaları sessize alınıyor...", "Hazır");
+                else if (phase === "media") log("Session medyası pakete kopyalanıyor...", "Hazır");
+                else if (phase === "verify") log("Paket son kontrolü yapılıyor...", "Hazır");
+              }
+              if (phase === "measure") {
+                setBusy("Ses düzeyleri ölçülüyor (" + completed + "/" + total + ")");
+                if (total > 0) btnProgress(btn, 25 + Math.round((completed / total) * 20));
+              } else if (phase === "package") {
+                setBusy("Paket yapısı hazırlanıyor");
+                btnProgress(btn, 48);
+              } else if (phase === "level_takes") {
+                setBusy("Paket take düzeyleri eşitleniyor (" + completed + "/" + total + ")");
+                if (total > 0) btnProgress(btn, 49 + Math.round((completed / total) * 16));
+              } else if (phase === "sanitize_takes") {
+                setBusy("Paket take başlangıçları temizleniyor (" + completed + "/" + total + ")");
+                if (total > 0) btnProgress(btn, 49 + Math.round((completed / total) * 16));
+              } else if (phase === "media") {
+                setBusy("Session medyası paketleniyor (" + completed + "/" + total + ")");
+                if (total > 0) btnProgress(btn, 65 + Math.round((completed / total) * 9));
+              } else if (phase === "verify") {
+                setBusy("Paket son kontrolü yapılıyor");
+                btnProgress(btn, 76);
+              }
+            }
+          }).then(function (result) {
             state.lastPackageRoot = result.packageRoot;
             log("Paket hazır: " + result.packageRoot + " (orijinal " + result.copied + ", take " + result.copiedTakes + ")", "Hazır");
             if (result.sesxCopied) log(".sesx pakete kopyalandı: " + result.sesxCopied, "Hazır");
             else if (result.sesxMissing) log("UYARI: .sesx kopyalanamadı (yol bulunamadı).", "Uyarı");
             if (result.sessionMediaCount) log("Session medyası (kayıt/merged/imported) .sesx'in yanına aynı göreli yolla kopyalandı: " + result.sessionMediaCount + " ses dosyası.", "Hazır");
+            if (result.headTrim) {
+              if (result.headTrim.sanitizedTakes > 0) {
+                log("Klavye sesi temizliği: " + result.headTrim.sanitizedTakes + " take ve " + result.headTrim.sanitizedSessionFiles + " session medya dosyası, süre/konum değişmeden sessize alındı.", "Hazır");
+              } else {
+                log("Klavye sesi temizliği: temizlenecek güvenli başlangıç bulunmadı; konuşmalar korundu.", "Hazır");
+              }
+              if (result.headTrim.warnings && result.headTrim.warnings.length) log("Klavye sesi temizleme uyarıları: " + result.headTrim.warnings.slice(0, 6).join(" | "), "Uyarı");
+            }
             if (result.levelMatch) {
               if (result.levelMatch.leveled > 0) {
                 log("Düzey eşitleme: " + result.levelMatch.leveled + " kayıt dosyası, " + result.levelMatch.lineCount + " replik hedefine göre orijinal düzeyine çekildi" + (result.levelMatch.resolvedByName ? " (" + result.levelMatch.resolvedByName + " replikte dosya clip adından bulundu)" : "") + ". Mixçi projeyi açtığında sesler eşit duyulur.", "Hazır");
+              } else if (result.levelMatch.fileCount > 0 && result.levelMatch.unchanged >= result.levelMatch.fileCount) {
+                log("Düzey eşitleme kontrolü: " + result.levelMatch.fileCount + " kayıt zaten hedef düzeye yakın; değişiklik gerekmedi.", "Hazır");
               } else {
                 log("Düzey eşitleme istendi ama hiçbir kayıt dosyasına uygulanamadı. Kayıtlar düz kopyalandı.", "Uyarı");
                 // Sessiz kalmasın: kullanıcı logu görmüyor olabilir (log gizli panelde).
@@ -1017,7 +1205,7 @@
               if (result.levelMatch.warnings && result.levelMatch.warnings.length) log("Düzey uyarıları: " + result.levelMatch.warnings.slice(0, 6).join(" | ") + (result.levelMatch.warnings.length > 6 ? " ..." : ""), "Uyarı");
             }
 
-            btnProgress(btn, 60);
+            btnProgress(btn, 80);
             setBusy("Zip oluşturuluyor");
             log("Zip oluşturuluyor...", "Hazır");
             ProjectStore.zipFolder(result.packageRoot).then(function (zipRes) {
@@ -1030,9 +1218,9 @@
               ProjectStore.revealFolder(result.baseDir || result.packageRoot);
               failPackageFlow(btn, "Zip oluşturulamadı: " + ze.message + " - paket klasörü hazır, elle zip'leyebilirsin: " + result.packageRoot, "Uyarı");
             });
-          } catch (e) {
-            failPackageFlow(btn, "Paket oluşturulamadı: " + e.message, "Hata");
-          }
+          }).catch(function (packageError) {
+            failPackageFlow(btn, "Paket oluşturulamadı: " + packageError.message, "Hata");
+          });
         }).catch(function (waitErr) {
           failPackageFlow(btn, ".sesx yazımı tamamlanmadı; zip başlatılmadı: " + waitErr.message, "Hata");
         });
@@ -1138,6 +1326,10 @@
         showLineListIfProject();
         renderMxOutDir();
         log("Proje yüklendi: " + project.projectName + " / " + project.lines.length + " replik", "Hazır");
+        log("Çalışma kökü: " + project.projectRootPath);
+        if (project.stalePathsDropped && project.stalePathsDropped.length) {
+          log("Paket başka bilgisayardan gelmiş; eski makineye ait yollar temizlendi (" + project.stalePathsDropped.join(", ") + "). Çıktılar bu klasöre yazılacak.", "Hazır");
+        }
         btnDone(els.mxLoadBtn);
       } catch (e) { log("Proje yüklenemedi: " + e.message, "Hata"); btnFail(els.mxLoadBtn); }
     });
@@ -1178,9 +1370,13 @@
           var t1 = (t1res.extra && t1res.extra.clips) || [];
           var t2 = (t2res.extra && t2res.extra.clips) || [];
           log("Track " + (origIdx + 1) + ": " + t1.length + " orijinal, Track " + (recIdx + 1) + ": " + t2.length + " kayıt.", "Hazır");
+          var headTrimSettings = getRecordingHeadTrimSettings();
           state.project = ProjectStore.buildProjectFromMatchedTracks(t1, t2, {
             rootDir: rootDir,
             gapSeconds: els.gapSeconds ? els.gapSeconds.value : 6,
+            recordingHeadTrimEnabled: headTrimSettings.recordingHeadTrimEnabled,
+            recordingHeadTrimMode: headTrimSettings.recordingHeadTrimMode,
+            recordingHeadTrimMs: headTrimSettings.recordingHeadTrimMs,
             exportPresetId: (els.mxExportPreset && els.mxExportPreset.value) || (els.exportPreset && els.exportPreset.value),
             projectName: "Mixer_Matched"
           });
@@ -1221,11 +1417,26 @@
     state.project.ffmpegPath = bundledFfmpeg() || "";
   }
 
+  function applyMixLevelMatchSetting() {
+    if (!state.project) return;
+    state.project.levelMatchOriginal = !els.mxLevelMatch || !!els.mxLevelMatch.checked;
+  }
+
   function runSplitPipeline(btn) {
     applyFfmpegPath();
+    applyMixLevelMatchSetting();
     setBusy("Mix bölünüyor");
     var script = ProjectStore.createFfmpegMixSplitScript(state.project, state.mixedFile);
+    if (state.project.levelMatchOriginal !== false) {
+      if (script.levelMatchCount !== script.itemCount) {
+        throw new Error("Mix sonrası düzey eşitleme için " + (script.itemCount - script.levelMatchCount) + " replikte orijinal referans bulunamadı. Paket içindeki doğru project.json'u yükle.");
+      }
+      log("Mix sonrası düzey eşitleme hazır: " + script.levelMatchCount + "/" + script.itemCount + " parça orijinaline göre ayarlanacak.", "Hazır");
+    } else {
+      log("Mix sonrası düzey eşitleme kapalı; parçalar mixteki düzeyiyle korunacak.", "Hazır");
+    }
     log("Mix ayırma script hazır: " + script.ps1Path + " / segment: " + script.itemCount, "Hazır");
+    logMixSplitHeadTrim(script);
     btnProgress(btn, 5);
     return ProjectStore.runFfmpegMixSplit(state.project, null, function (chunk) {
       chunk.split(/\r?\n/).forEach(function (line) {
@@ -1242,6 +1453,7 @@
       var verify = ProjectStore.verifyMixSplitOutputs(state.project, true);
       renderProject(state.project);
       log("Bölme doğrulama: beklenen " + verify.expected + " / bulunan " + verify.present + " / eksik " + verify.missing + " / boş " + verify.empty + " / take yapılan " + verify.attachedTakes, verify.ok ? "Hazır" : "Uyarı");
+      if (verify.headTrimmedItemCount > 0) log("Başlangıç temizleme sonucu: " + verify.headTrimmedItemCount + " kayıtta toplam " + verify.headTrimTotalMs + " ms kırpıldı.", "Hazır");
       if (verify.ok) { log("Adım 2 tamam. Parçalar repliklere take olarak bağlandı. Şimdi Adım 3 export.", "Hazır"); btnDone(btn); }
       else { if (verify.problemFiles && verify.problemFiles.length) log("Sorunlu: " + verify.problemFiles.slice(0, 12).join(", "), "Uyarı"); btnFail(btn); }
       state.mixedFile = null;
@@ -1344,9 +1556,9 @@
   // =====================================================================
   //  UZAKTAN GÜNCELLEME
   //  version.json'u barındır (GitHub Releases / web sunucu) ve URL'i aşağıya yaz.
-  //  version.json örneği: { "version":"1.6.0", "setupUrl":"https://.../OdiumStudioSetup.exe", "notes":"..." }
+  //  version.json örneği: { "version":"1.13.0", "setupUrl":"https://.../OdiumStudioSetup.exe", "notes":"..." }
   // =====================================================================
-  var CURRENT_VERSION = "1.2";
+  var CURRENT_VERSION = "1.13";
   var UPDATE_MANIFEST_URL = "https://api.github.com/repos/forderdev/Odium-Audition-Extension/contents/AU-Dub-Panel/version.json?ref=main";
 
   function cmpVer(a, b) {
@@ -1459,5 +1671,5 @@
   renderPresetDetails();
   setRole(null);
   try { checkForUpdate(); } catch (e) {}
-  log("Panel yüklendi. v1.2 - Odium Studio Audition Plugini.", "Hazır");
+  log("Panel yüklendi. v1.13 - Odium Studio Audition Plugini.", "Hazır");
 })();
