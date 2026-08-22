@@ -1,7 +1,7 @@
 (function (global) {
   (global.__odiumAuthShards = global.__odiumAuthShards || []).push({ order: 10, shift: 9, u: [120, 109], p: [120, 131] });
 
-  var APP_VERSION = "1.13";
+  var APP_VERSION = "1.3";
   var AUDIO_EXTENSIONS = ["wav", "wave", "bwf", "mp3", "ogg", "oga", "flac", "aif", "aiff", "aifc", "m4a", "aac", "w64"];
   var DEFAULT_RECORDING_HEAD_TRIM_ENABLED = true;
   var DEFAULT_RECORDING_HEAD_TRIM_MODE = "auto";

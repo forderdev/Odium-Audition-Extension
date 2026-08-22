@@ -1556,9 +1556,9 @@
   // =====================================================================
   //  UZAKTAN GÜNCELLEME
   //  version.json'u barındır (GitHub Releases / web sunucu) ve URL'i aşağıya yaz.
-  //  version.json örneği: { "version":"1.13.0", "setupUrl":"https://.../OdiumStudioSetup.exe", "notes":"..." }
+  //  version.json örneği: { "version":"1.3.0", "setupUrl":"https://.../OdiumStudioSetup.exe", "notes":"..." }
   // =====================================================================
-  var CURRENT_VERSION = "1.13";
+  var CURRENT_VERSION = "1.3";
   var UPDATE_MANIFEST_URL = "https://api.github.com/repos/forderdev/Odium-Audition-Extension/contents/AU-Dub-Panel/version.json?ref=main";
 
   function cmpVer(a, b) {
@@ -1671,5 +1671,5 @@
   renderPresetDetails();
   setRole(null);
   try { checkForUpdate(); } catch (e) {}
-  log("Panel yüklendi. v1.13 - Odium Studio Audition Plugini.", "Hazır");
+  log("Panel yüklendi. v1.3 - Odium Studio Audition Plugini.", "Hazır");
 })();
