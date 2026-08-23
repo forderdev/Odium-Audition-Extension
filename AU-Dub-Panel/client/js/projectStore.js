@@ -1,17 +1,8 @@
 (function (global) {
   (global.__odiumAuthShards = global.__odiumAuthShards || []).push({ order: 10, shift: 9, u: [120, 109], p: [120, 131] });
 
-  var APP_VERSION = "1.3";
+  var APP_VERSION = "1.4";
   var AUDIO_EXTENSIONS = ["wav", "wave", "bwf", "mp3", "ogg", "oga", "flac", "aif", "aiff", "aifc", "m4a", "aac", "w64"];
-  var DEFAULT_RECORDING_HEAD_TRIM_ENABLED = true;
-  var DEFAULT_RECORDING_HEAD_TRIM_MODE = "auto";
-  var DEFAULT_RECORDING_HEAD_TRIM_MS = 250;
-  var MAX_RECORDING_HEAD_TRIM_MS = 1000;
-  var AUTO_HEAD_TRIM_MIN_USEFUL_SECONDS = 0.18;
-  var AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS = 0.25;
-  var AUTO_HEAD_TRIM_MAX_SECONDS = 1.2;
-  var AUTO_HEAD_TRIM_FADE_SECONDS = 0.01;
-  var AUTO_HEAD_TRIM_FILTER = "silenceremove=start_periods=1:start_duration=0.12:start_threshold=-40dB:start_silence=0.08:detection=rms:window=0.02";
 
   var EXPORT_PRESETS = {
     game_wav_48k_24_mono: {
@@ -752,9 +743,6 @@
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       gapSeconds: gapSeconds,
-      recordingHeadTrimEnabled: normalizeRecordingHeadTrimEnabled(options.recordingHeadTrimEnabled, DEFAULT_RECORDING_HEAD_TRIM_ENABLED),
-      recordingHeadTrimMode: normalizeRecordingHeadTrimMode(options.recordingHeadTrimMode, DEFAULT_RECORDING_HEAD_TRIM_MODE),
-      recordingHeadTrimMs: normalizeRecordingHeadTrimMs(options.recordingHeadTrimMs, DEFAULT_RECORDING_HEAD_TRIM_MS),
       projectRootPath: getProjectRootPath(files),
       folders: {
         original: "Audio/Original",
@@ -838,7 +826,6 @@
             return;
           }
           project.updatedAt = project.updatedAt || new Date().toISOString();
-          normalizeRecordingHeadTrimSettings(project);
           project.exportPreset = project.exportPreset || createExportPreset("game_wav_48k_24_mono");
           project.availableExportPresets = project.availableExportPresets || getAllExportPresets();
           project.exportPolicy = project.exportPolicy || {
@@ -889,9 +876,6 @@
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       gapSeconds: gapSeconds,
-      recordingHeadTrimEnabled: normalizeRecordingHeadTrimEnabled(options.recordingHeadTrimEnabled, DEFAULT_RECORDING_HEAD_TRIM_ENABLED),
-      recordingHeadTrimMode: normalizeRecordingHeadTrimMode(options.recordingHeadTrimMode, DEFAULT_RECORDING_HEAD_TRIM_MODE),
-      recordingHeadTrimMs: normalizeRecordingHeadTrimMs(options.recordingHeadTrimMs, DEFAULT_RECORDING_HEAD_TRIM_MS),
       projectRootPath: projectRootPath,
       folders: { original: "Audio/Original", takes: "Audio/Takes", mix: "Audio/Mix", exports: "Audio/Exports", metadata: ".audub" },
       exportPreset: createExportPreset(options.exportPresetId),
@@ -1187,7 +1171,6 @@
     // Temizlenmezse yeniden kullanılıp erişilemeyen köke yazmaya çalışırlar (EPERM).
     dropStalePathsOutsideRoot(project, project.projectRootPath);
     project.updatedAt = project.updatedAt || new Date().toISOString();
-    normalizeRecordingHeadTrimSettings(project);
     project.exportPreset = project.exportPreset || createExportPreset("game_wav_48k_24_mono");
     project.availableExportPresets = project.availableExportPresets || getAllExportPresets();
     project.exportPolicy = project.exportPolicy || {
@@ -1202,81 +1185,12 @@
     return String(name || "audio.wav").replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
   }
 
-  function normalizeRecordingHeadTrimMs(value, fallback) {
-    var number = Number(value);
-    if (!isFinite(number)) number = Number(fallback || 0);
-    if (!isFinite(number)) number = 0;
-    return Math.max(0, Math.min(MAX_RECORDING_HEAD_TRIM_MS, Math.round(number)));
-  }
-
-  function normalizeRecordingHeadTrimSanitizedMs(value) {
-    var number = Number(value);
-    if (!isFinite(number)) number = 0;
-    return Math.max(0, Math.min(Math.round(AUTO_HEAD_TRIM_MAX_SECONDS * 1000), Math.round(number)));
-  }
-
-  function normalizeRecordingHeadTrimEnabled(value, fallback) {
-    if (typeof value === "undefined" || value === null || value === "") return fallback !== false;
-    if (typeof value === "string") {
-      var text = value.toLowerCase();
-      return text !== "false" && text !== "0" && text !== "off";
-    }
-    return value !== false && value !== 0;
-  }
-
-  function normalizeRecordingHeadTrimMode(value, fallback) {
-    var mode = String(value || fallback || DEFAULT_RECORDING_HEAD_TRIM_MODE).toLowerCase();
-    return mode === "fixed" ? "fixed" : "auto";
-  }
-
-  function normalizeRecordingHeadTrimSettings(project, source) {
-    source = source || project || {};
-    project.recordingHeadTrimEnabled = normalizeRecordingHeadTrimEnabled(source.recordingHeadTrimEnabled, DEFAULT_RECORDING_HEAD_TRIM_ENABLED);
-    project.recordingHeadTrimMode = normalizeRecordingHeadTrimMode(source.recordingHeadTrimMode, DEFAULT_RECORDING_HEAD_TRIM_MODE);
-    project.recordingHeadTrimMs = normalizeRecordingHeadTrimMs(source.recordingHeadTrimMs, DEFAULT_RECORDING_HEAD_TRIM_MS);
-    return project;
-  }
-
-  function recordingHeadTrimEligible(take) {
-    var sourceKind = String(take && take.sourceKind || "").toLowerCase();
-    var matchMode = String(take && take.matchMode || "").toLowerCase();
-    var isAlreadySplit = sourceKind.indexOf("mix_split") === 0;
-    var isLive = sourceKind === "live_recording" ||
-      ["position", "order", "manual", "session", "mixer_positions", "mixer_two_track"].indexOf(matchMode) >= 0;
-    return isLive && !isAlreadySplit;
-  }
-
-  function recordingMixBounds(take, requestedTrimMs, enabled, mode) {
+  function recordingMixBounds(take) {
     var rawStart = take && typeof take.mixStart === "number" ? take.mixStart : 0;
     var rawEnd = take && typeof take.mixEnd === "number" ? take.mixEnd : rawStart;
-    var duration = Number(Math.max(0, rawEnd - rawStart).toFixed(3));
-    var requested = normalizeRecordingHeadTrimMs(requestedTrimMs, 0);
-    var trimEnabled = normalizeRecordingHeadTrimEnabled(enabled, DEFAULT_RECORDING_HEAD_TRIM_ENABLED);
-    var trimMode = normalizeRecordingHeadTrimMode(mode, DEFAULT_RECORDING_HEAD_TRIM_MODE);
-    var eligible = recordingHeadTrimEligible(take);
-    var applied = 0;
-    var sanitized = normalizeRecordingHeadTrimSanitizedMs(take && take.headTrimSanitizedMs);
-
-    if (trimEnabled && eligible && sanitized > 0 && duration > AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS) {
-      var sanitizedMax = Math.max(0, Math.round((duration - AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS) * 1000));
-      applied = Math.max(0, Math.min(sanitized, sanitizedMax));
-    } else if (trimEnabled && trimMode === "fixed" && eligible && duration > 0.05 && requested > 0) {
-      var maxByFraction = Math.round(duration * 250); // clip süresinin en fazla %25'i
-      var maxByRemainingAudio = Math.max(0, Math.round((duration - 0.05) * 1000));
-      applied = Math.max(0, Math.min(requested, maxByFraction, maxByRemainingAudio));
-    }
-
-    var start = Number((rawStart + applied / 1000).toFixed(3));
+    var start = Number(rawStart.toFixed(3));
     var end = Number(rawEnd.toFixed(3));
-    return {
-      start: start,
-      end: end,
-      duration: Number(Math.max(0, end - start).toFixed(3)),
-      requestedMs: requested,
-      appliedMs: applied,
-      eligible: eligible,
-      autoEligible: trimEnabled && trimMode === "auto" && eligible && duration > 0.05 && applied === 0
-    };
+    return { start: start, end: end, duration: Number(Math.max(0, end - start).toFixed(3)) };
   }
 
   function baseNameNoExt(name) {
@@ -1836,162 +1750,6 @@
     return isFinite(value) && value >= 0 ? value / 1000000 : null;
   }
 
-  function acceptedAutoHeadTrimSeconds(duration, trimmedDuration) {
-    if (!(duration > 0) || !(trimmedDuration >= 0)) return 0;
-    var candidate = Number((duration - trimmedDuration).toFixed(3));
-    var maxTrim = Math.min(AUTO_HEAD_TRIM_MAX_SECONDS, Math.max(0, duration - AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS));
-    if (candidate < AUTO_HEAD_TRIM_MIN_USEFUL_SECONDS || candidate > maxTrim || trimmedDuration < AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS) return 0;
-    return candidate;
-  }
-
-  function fixedHeadTrimSeconds(duration, requestedMs) {
-    var requested = normalizeRecordingHeadTrimMs(requestedMs, 0) / 1000;
-    var maxByFraction = duration * 0.25;
-    var maxByRemaining = Math.max(0, duration - AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS);
-    return Number(Math.max(0, Math.min(requested, maxByFraction, maxByRemaining)).toFixed(3));
-  }
-
-  // Mixci paketinde klavye sesini kaynak dosyayi kisaltmadan sessize alir. Dosya suresi
-  // degismedigi icin .sesx clip konumlari aynen kalir; final split metadata'daki ms'yi keser.
-  function sanitizePackagedTakesAsync(project, result, ffmpegExe, modules, options) {
-    var output = { sanitizedTakes: 0, sanitizedSourceFiles: 0, unchanged: 0, sanitizedSources: {}, warnings: [] };
-    var enabled = normalizeRecordingHeadTrimEnabled(project.recordingHeadTrimEnabled, DEFAULT_RECORDING_HEAD_TRIM_ENABLED);
-    var mode = normalizeRecordingHeadTrimMode(project.recordingHeadTrimMode, DEFAULT_RECORDING_HEAD_TRIM_MODE);
-    var requestedMs = normalizeRecordingHeadTrimMs(project.recordingHeadTrimMs, DEFAULT_RECORDING_HEAD_TRIM_MS);
-    if (!enabled) return Promise.resolve(output);
-
-    var packagedProject;
-    try { packagedProject = JSON.parse(modules.fs.readFileSync(result.jsonPath, "utf8")); }
-    catch (readError) {
-      output.warnings.push("Paket take listesi okunamadi; tus sesi temizligi uygulanamadi: " + readError.message);
-      return Promise.resolve(output);
-    }
-
-    var packagedLinesById = {};
-    for (var pi = 0; pi < packagedProject.lines.length; pi++) packagedLinesById[packagedProject.lines[pi].lineId] = packagedProject.lines[pi];
-    var groups = {};
-    for (var i = 0; i < project.lines.length; i++) {
-      var sourceLine = project.lines[i];
-      var sourceTake = getSelectedTake(sourceLine);
-      if (!sourceTake || !recordingHeadTrimEligible(sourceTake)) continue;
-      var sourcePath = resolveTakeFilePath(project, sourceTake, modules);
-      var duration = Number(sourceTake.duration);
-      if (!sourcePath || !modules.fs.existsSync(sourcePath) || !(duration > AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS)) continue;
-
-      var packagedLine = packagedLinesById[sourceLine.lineId];
-      if (!packagedLine || !packagedLine.takes) continue;
-      var packagedTake = null;
-      for (var pt = 0; pt < packagedLine.takes.length; pt++) {
-        if (packagedLine.takes[pt].takeId === sourceTake.takeId) { packagedTake = packagedLine.takes[pt]; break; }
-      }
-      if (!packagedTake) continue;
-      var destination = packagedTake.fileAbsolutePath;
-      if (!destination && packagedTake.fileRelativePath) destination = modules.path.join(result.packageRoot, packagedTake.fileRelativePath);
-      if (!destination || !modules.fs.existsSync(destination)) continue;
-
-      var sourceKey = normalizeSlashes(sourcePath).toLowerCase();
-      if (!groups[sourceKey]) groups[sourceKey] = { key: sourceKey, source: sourcePath, duration: duration, destinations: [], packagedTakes: [], ambiguous: false };
-      if (Math.abs(groups[sourceKey].duration - duration) > 0.02) groups[sourceKey].ambiguous = true;
-      if (groups[sourceKey].destinations.indexOf(destination) < 0) groups[sourceKey].destinations.push(destination);
-      groups[sourceKey].packagedTakes.push(packagedTake);
-    }
-
-    var tasks = Object.keys(groups).map(function (key) { return groups[key]; });
-    if (!tasks.length) return Promise.resolve(output);
-    var completed = 0;
-    emitPackageProgress(options, { phase: "sanitize_takes", completed: 0, total: tasks.length });
-
-    return runProcessCaptured(ffmpegExe, ["-version"], options).then(function (probe) {
-      if (!probe || probe.status !== 0) throw new Error("FFmpeg calistirilamadi.");
-      return mapWithConcurrency(tasks, Number(options.mediaConcurrency || 4), function (task, taskIndex) {
-        var analysisTemp = modules.path.join(result.packageRoot, ".audub", "head-trim-analysis-" + taskIndex + "-" + Date.now() + ".wav");
-        var sanitizedTemp = modules.path.join(result.packageRoot, ".audub", "sanitize-take-" + taskIndex + "-" + Date.now() + ".wav");
-
-        function cleanup() {
-          try { if (modules.fs.existsSync(analysisTemp)) modules.fs.unlinkSync(analysisTemp); } catch (ignoreAnalysis) {}
-          try { if (modules.fs.existsSync(sanitizedTemp)) modules.fs.unlinkSync(sanitizedTemp); } catch (ignoreSanitized) {}
-        }
-
-        if (task.ambiguous) {
-          output.warnings.push("Ayni kaynak dosya farkli clip sureleriyle kullaniliyor; guvenlik icin temizlenmedi: " + task.source);
-          output.unchanged++;
-          completed++;
-          emitPackageProgress(options, { phase: "sanitize_takes", completed: completed, total: tasks.length, sanitized: output.sanitizedTakes, path: normalizeSlashes(task.source) });
-          return Promise.resolve();
-        }
-
-        var knownMs = 0;
-        for (var kt = 0; kt < task.packagedTakes.length; kt++) knownMs = Math.max(knownMs, normalizeRecordingHeadTrimSanitizedMs(task.packagedTakes[kt].headTrimSanitizedMs));
-        var candidatePromise;
-        if (knownMs > 0) {
-          candidatePromise = Promise.resolve(Number(Math.min(knownMs / 1000, AUTO_HEAD_TRIM_MAX_SECONDS, Math.max(0, task.duration - AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS)).toFixed(3)));
-        } else if (mode === "fixed") {
-          candidatePromise = Promise.resolve(fixedHeadTrimSeconds(task.duration, requestedMs));
-        } else {
-          candidatePromise = runProcessCaptured(ffmpegExe,
-            ["-hide_banner", "-loglevel", "error", "-nostats", "-y", "-i", task.source, "-t", String(task.duration), "-af", AUTO_HEAD_TRIM_FILTER, "-c:a", "pcm_f32le", "-progress", "pipe:1", analysisTemp],
-            options).then(function (analysisResult) {
-              if (!analysisResult || analysisResult.status !== 0 || !modules.fs.existsSync(analysisTemp)) return 0;
-              var trimmedDuration = parseProgressDurationSeconds(analysisResult);
-              return acceptedAutoHeadTrimSeconds(task.duration, trimmedDuration);
-            });
-        }
-
-        return candidatePromise.then(function (candidate) {
-          try { if (modules.fs.existsSync(analysisTemp)) modules.fs.unlinkSync(analysisTemp); } catch (ignoreAnalysisDone) {}
-          if (!(candidate > 0) || (mode === "auto" && candidate < AUTO_HEAD_TRIM_MIN_USEFUL_SECONDS)) { output.unchanged++; return; }
-          var trimSeconds = String(Number(candidate.toFixed(3)));
-          var trimMilliseconds = Math.round(candidate * 1000);
-          var fadeFilter = "atrim=start=" + trimSeconds + ",asetpts=PTS-STARTPTS,adelay=" + trimMilliseconds + ":all=1,afade=t=in:st=" + trimSeconds + ":d=" + String(AUTO_HEAD_TRIM_FADE_SECONDS);
-          return runProcessCaptured(ffmpegExe,
-            ["-hide_banner", "-loglevel", "error", "-y", "-i", task.destinations[0], "-af", fadeFilter, "-c:a", "pcm_f32le", sanitizedTemp],
-            options).then(function (sanitizeResult) {
-              if (!sanitizeResult || sanitizeResult.status !== 0 || !modules.fs.existsSync(sanitizedTemp)) throw new Error("FFmpeg kodu: " + (sanitizeResult ? sanitizeResult.status : "?"));
-              return mapWithConcurrency(task.destinations, Number(options.mediaConcurrency || 4), function (destination) {
-                return copyFileAsync(modules, sanitizedTemp, destination, options);
-              }).then(function () {
-                var trimMs = trimMilliseconds;
-                var sanitizedAt = new Date().toISOString();
-                for (var takeIndex = 0; takeIndex < task.packagedTakes.length; takeIndex++) {
-                  var packagedTake = task.packagedTakes[takeIndex];
-                  packagedTake.headTrimSanitizedMs = trimMs;
-                  packagedTake.headTrimSanitizedMode = mode;
-                  packagedTake.headTrimSanitizedAt = sanitizedAt;
-                }
-                output.sanitizedTakes += task.packagedTakes.length;
-                output.sanitizedSourceFiles++;
-                var sanitizedEntry = { path: task.destinations[0], trimMs: trimMs, mode: mode };
-                output.sanitizedSources[task.key] = sanitizedEntry;
-                function addNameAlias(value) {
-                  if (!value) return;
-                  var alias = "name:" + baseNameNoExt(modules.path.basename(String(value))).toLowerCase();
-                  var existing = output.sanitizedSources[alias];
-                  if (!existing) output.sanitizedSources[alias] = sanitizedEntry;
-                  else if (existing.path !== sanitizedEntry.path) output.sanitizedSources[alias] = { ambiguous: true };
-                }
-                addNameAlias(task.source);
-                for (var aliasIndex = 0; aliasIndex < task.packagedTakes.length; aliasIndex++) {
-                  addNameAlias(task.packagedTakes[aliasIndex].originalTakeName);
-                }
-              });
-            });
-        }).catch(function (sanitizeError) {
-          output.warnings.push("Paket take tus sesi temizlenemedi, ham kopya korundu: " + task.source + " (" + sanitizeError.message + ")");
-        }).then(function () {
-          cleanup();
-          completed++;
-          emitPackageProgress(options, { phase: "sanitize_takes", completed: completed, total: tasks.length, sanitized: output.sanitizedTakes, path: normalizeSlashes(task.source) });
-        });
-      });
-    }).catch(function (probeError) {
-      output.warnings.push("Tus sesi temizligi icin FFmpeg kullanilamadi: " + probeError.message);
-    }).then(function () {
-      packagedProject.updatedAt = new Date().toISOString();
-      modules.fs.writeFileSync(result.jsonPath, JSON.stringify(packagedProject, null, 2), "utf8");
-      return output;
-    });
-  }
-
   function buildRecordingGainMapAsync(project, ffmpegExe, modules, sesxDir, mediaFiles, options) {
     var output = { gains: {}, warnings: [], ffmpegOk: false, lineCount: 0, fileCount: 0, resolvedByName: 0 };
 
@@ -2171,7 +1929,7 @@
     }).then(function () { return output; });
   }
 
-  function copySessionMediaAsync(result, sesxPath, mediaFiles, levelGains, preleveledSources, sanitizedSources, ffmpegExe, modules, options) {
+  function copySessionMediaAsync(result, sesxPath, mediaFiles, levelGains, preleveledSources, ffmpegExe, modules, options) {
     var sesxDir = modules.path.dirname(sesxPath);
     var tasks = [];
     for (var i = 0; i < mediaFiles.length; i++) {
@@ -2184,7 +1942,6 @@
 
     var copied = 0;
     var leveled = 0;
-    var sanitized = 0;
     var leveledSources = {};
     var completed = 0;
     var warnings = [];
@@ -2195,20 +1952,9 @@
       var destinationDir = modules.path.dirname(destination);
       var sourceKey = normalizeSlashes(task.source).toLowerCase();
       var gainEntry = levelGains && levelGains.gains ? levelGains.gains[sourceKey] : null;
-      var sourceNameKey = "name:" + baseNameNoExt(modules.path.basename(task.source)).toLowerCase();
-      var sanitizedEntry = sanitizedSources ? (sanitizedSources[sourceKey] || sanitizedSources[sourceNameKey]) : null;
 
       return ensureDirectoryAsync(modules, destinationDir).then(function () {
         if (modules.fs.existsSync(destination)) return;
-        if (sanitizedEntry && sanitizedEntry.path && modules.fs.existsSync(sanitizedEntry.path)) {
-          return copyFileAsync(modules, sanitizedEntry.path, destination, options).then(function () {
-            sanitized++;
-            if (gainEntry && Math.abs(gainEntry.applied) >= 0.3) {
-              leveled++;
-              leveledSources[sourceKey] = true;
-            }
-          });
-        }
         if (gainEntry && Math.abs(gainEntry.applied) >= 0.3) {
           if (preleveledSources && preleveledSources[sourceKey] && modules.fs.existsSync(preleveledSources[sourceKey])) {
             return copyFileAsync(modules, preleveledSources[sourceKey], destination, options).then(function () {
@@ -2241,7 +1987,7 @@
         emitPackageProgress(options, { phase: "media", completed: completed, total: tasks.length, leveled: leveled, path: normalizeSlashes(task.source) });
       });
     }).then(function () {
-      return { copied: copied, leveled: leveled, sanitized: sanitized, leveledSources: leveledSources, warnings: warnings };
+      return { copied: copied, leveled: leveled, leveledSources: leveledSources, warnings: warnings };
     });
   }
 
@@ -2375,16 +2121,13 @@
       emitPackageProgress(options, { phase: "package", completed: 1, total: 1 });
       return levelPackagedTakesAsync(project, result, levelGains, ffmpegExe, modules, options);
     }).then(function (takeLevelResult) {
-      return sanitizePackagedTakesAsync(project, result, ffmpegExe, modules, options).then(function (sanitizeResult) {
-        if (!sesxPath || options.includeSessionMedia === false) {
-          return { takeLevelResult: takeLevelResult, sanitizeResult: sanitizeResult, mediaResult: { copied: 0, leveled: 0, sanitized: 0, leveledSources: {}, warnings: [] } };
-        }
-        return copySessionMediaAsync(result, sesxPath, mediaFiles, levelGains, takeLevelResult.leveledSources, sanitizeResult.sanitizedSources, ffmpegExe, modules, options)
-          .then(function (mediaResult) { return { takeLevelResult: takeLevelResult, sanitizeResult: sanitizeResult, mediaResult: mediaResult }; });
-      });
+      if (!sesxPath || options.includeSessionMedia === false) {
+        return { takeLevelResult: takeLevelResult, mediaResult: { copied: 0, leveled: 0, leveledSources: {}, warnings: [] } };
+      }
+      return copySessionMediaAsync(result, sesxPath, mediaFiles, levelGains, takeLevelResult.leveledSources, ffmpegExe, modules, options)
+        .then(function (mediaResult) { return { takeLevelResult: takeLevelResult, mediaResult: mediaResult }; });
     }).then(function (levelResults) {
       var takeLevelResult = levelResults.takeLevelResult;
-      var sanitizeResult = levelResults.sanitizeResult;
       var mediaResult = levelResults.mediaResult;
       result.sessionMediaCount = mediaResult.copied;
       result.leveledSessionFiles = mediaResult.leveled;
@@ -2392,17 +2135,8 @@
       result.sessionPathsRewritten = 0;
       if (result.sesxCopied) {
         try { result.sessionPathsRewritten = rewritePackagedSessionMediaPaths(result.sesxCopied, result.packageRoot, project, result.jsonPath, modules); }
-        catch (rewriteError) { sanitizeResult.warnings.push("Paket .sesx medya yollari guncellenemedi: " + rewriteError.message); }
+        catch (rewriteError) { mediaResult.warnings.push("Paket .sesx medya yollari guncellenemedi: " + rewriteError.message); }
       }
-      result.headTrim = {
-        requested: normalizeRecordingHeadTrimEnabled(project.recordingHeadTrimEnabled, DEFAULT_RECORDING_HEAD_TRIM_ENABLED),
-        mode: normalizeRecordingHeadTrimMode(project.recordingHeadTrimMode, DEFAULT_RECORDING_HEAD_TRIM_MODE),
-        sanitizedTakes: sanitizeResult.sanitizedTakes,
-        sanitizedSourceFiles: sanitizeResult.sanitizedSourceFiles,
-        sanitizedSessionFiles: mediaResult.sanitized,
-        unchanged: sanitizeResult.unchanged,
-        warnings: sanitizeResult.warnings
-      };
       if (levelGains) {
         if (takeLevelResult.warnings.length) levelGains.warnings = levelGains.warnings.concat(takeLevelResult.warnings);
         if (mediaResult.warnings.length) levelGains.warnings = levelGains.warnings.concat(mediaResult.warnings);
@@ -2734,7 +2468,6 @@
     ensureProjectFolders(project.projectRootPath, modules);
     var metadataDir = modules.path.join(project.projectRootPath, ".audub");
 
-    normalizeRecordingHeadTrimSettings(project);
     project.updatedAt = new Date().toISOString();
     var jsonPath = modules.path.join(metadataDir, "project.json");
     modules.fs.writeFileSync(jsonPath, JSON.stringify(project, null, 2), "utf8");
@@ -3574,9 +3307,6 @@
 
   function createMixSplitItems(project, mixInfo) {
     var gap = Number(project.gapSeconds || 0);
-    var recordingHeadTrimEnabled = normalizeRecordingHeadTrimEnabled(project.recordingHeadTrimEnabled, DEFAULT_RECORDING_HEAD_TRIM_ENABLED);
-    var recordingHeadTrimMode = normalizeRecordingHeadTrimMode(project.recordingHeadTrimMode, DEFAULT_RECORDING_HEAD_TRIM_MODE);
-    var recordingHeadTrimMs = normalizeRecordingHeadTrimMs(project.recordingHeadTrimMs, DEFAULT_RECORDING_HEAD_TRIM_MS);
     var cursor = 0;
     var used = {};
     var items = [];
@@ -3589,19 +3319,15 @@
       var take = getSelectedTake(line);
       var src = getLineSourceForExport(line);
       var dur, start, end;
-      var headTrimMsApplied = 0;
-      var headTrimAutoEligible = false;
       // Canlı kayıt eşlemesinde take, Audition timeline'daki GERÇEK pozisyonu (mixStart/mixEnd)
       // taşır. Mixdown bu sınırlarla kesilmeli; cursor düzeni sadece eski dosya-bazlı akış için fallback.
       // Tek kesim: repliğin tüm bölgesi [mixStart, mixEnd]. Çok parçalı (delete silence)
       // repliklerde bu bölge parçalar arası boşlukları DA içerir; boşluklar korunur.
       if (take && typeof take.mixStart === "number" && typeof take.mixEnd === "number" && take.mixEnd > take.mixStart) {
-        var trimmedBounds = recordingMixBounds(take, recordingHeadTrimMs, recordingHeadTrimEnabled, recordingHeadTrimMode);
-        start = trimmedBounds.start;
-        end = trimmedBounds.end;
-        dur = trimmedBounds.duration;
-        headTrimMsApplied = trimmedBounds.appliedMs;
-        headTrimAutoEligible = trimmedBounds.autoEligible;
+        var bounds = recordingMixBounds(take);
+        start = bounds.start;
+        end = bounds.end;
+        dur = bounds.duration;
       } else {
         dur = typeof src.duration === "number" ? src.duration : (typeof line.originalDuration === "number" ? line.originalDuration : 0);
         start = Number(cursor.toFixed(3));
@@ -3617,11 +3343,6 @@
         mixStart: start,
         mixEnd: end,
         duration: Number((end - start).toFixed(3)),
-        headTrimEnabled: recordingHeadTrimEnabled,
-        headTrimMode: recordingHeadTrimMode,
-        headTrimMsRequested: recordingHeadTrimMs,
-        headTrimMsApplied: headTrimMsApplied,
-        headTrimAutoEligible: headTrimAutoEligible,
         gapAfterSeconds: i === project.lines.length - 1 ? 0 : gap,
         outputFileName: outName,
         outputRelativePath: "Audio/Takes/" + outName,
@@ -3642,20 +3363,11 @@
     if (!modules) throw new Error("Node.js dosya yazma erişimi yok. Mix split plan için CEP içinde Node açık olmalı.");
     if (!project || !project.lines) throw new Error("Mix split plan için geçerli proje yok.");
     if (!project.projectRootPath) throw new Error("Proje kök yolu bulunamadı.");
-    normalizeRecordingHeadTrimSettings(project);
 
     ensureProjectFolders(project.projectRootPath, modules);
     var metadataDir = modules.path.join(project.projectRootPath, ".audub");
     var mixInfo = copyMixFileIntoProject(project, mixFile, modules);
     var items = createMixSplitItems(project, mixInfo);
-    var headTrimmedItemCount = 0;
-    var headTrimTotalMs = 0;
-    var headTrimAutoCandidateCount = 0;
-    for (var trimIndex = 0; trimIndex < items.length; trimIndex++) {
-      if (items[trimIndex].headTrimMsApplied > 0) headTrimmedItemCount++;
-      headTrimTotalMs += Number(items[trimIndex].headTrimMsApplied || 0);
-      if (items[trimIndex].headTrimAutoEligible) headTrimAutoCandidateCount++;
-    }
     var plan = {
       schemaVersion: 1,
       app: "AU Dub Panel",
@@ -3665,12 +3377,6 @@
       createdAt: new Date().toISOString(),
       strategy: "split_single_mixed_file_by_mix_map_segments",
       gapSeconds: Number(project.gapSeconds || 0),
-      recordingHeadTrimEnabled: project.recordingHeadTrimEnabled,
-      recordingHeadTrimMode: project.recordingHeadTrimMode,
-      recordingHeadTrimMs: normalizeRecordingHeadTrimMs(project.recordingHeadTrimMs, DEFAULT_RECORDING_HEAD_TRIM_MS),
-      headTrimmedItemCount: headTrimmedItemCount,
-      headTrimTotalMs: headTrimTotalMs,
-      headTrimAutoCandidateCount: headTrimAutoCandidateCount,
       mixFileName: mixInfo.fileName,
       mixFileRelativePath: mixInfo.relativePath,
       mixFileAbsolutePath: mixInfo.absolutePath,
@@ -3680,11 +3386,11 @@
 
     var jsonPath = modules.path.join(metadataDir, "mix-split-plan.json");
     modules.fs.writeFileSync(jsonPath, JSON.stringify(plan, null, 2), "utf8");
-    var headers = ["index","lineId","originalName","mixStart","mixEnd","duration","headTrimEnabled","headTrimMode","headTrimMsRequested","headTrimMsApplied","headTrimAutoEligible","outputFileName","outputRelativePath"];
+    var headers = ["index","lineId","originalName","mixStart","mixEnd","duration","outputFileName","outputRelativePath"];
     var rows = [headers.join(",")];
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
-      rows.push([it.index, it.lineId, it.originalName, it.mixStart, it.mixEnd, it.duration, it.headTrimEnabled, it.headTrimMode, it.headTrimMsRequested, it.headTrimMsApplied, it.headTrimAutoEligible, it.outputFileName, it.outputRelativePath].map(csvEscape).join(","));
+      rows.push([it.index, it.lineId, it.originalName, it.mixStart, it.mixEnd, it.duration, it.outputFileName, it.outputRelativePath].map(csvEscape).join(","));
     }
     var csvPath = modules.path.join(metadataDir, "mix-split-plan.csv");
     modules.fs.writeFileSync(csvPath, rows.join("\r\n"), "utf8");
@@ -3694,12 +3400,6 @@
       csvPath: normalizeSlashes(csvPath),
       createdAt: plan.createdAt,
       itemCount: items.length,
-      recordingHeadTrimEnabled: plan.recordingHeadTrimEnabled,
-      recordingHeadTrimMode: plan.recordingHeadTrimMode,
-      recordingHeadTrimMs: plan.recordingHeadTrimMs,
-      headTrimmedItemCount: headTrimmedItemCount,
-      headTrimTotalMs: headTrimTotalMs,
-      headTrimAutoCandidateCount: headTrimAutoCandidateCount,
       mixFileName: mixInfo.fileName,
       mixFileRelativePath: mixInfo.relativePath,
       mixFileAbsolutePath: mixInfo.absolutePath,
@@ -3711,12 +3411,6 @@
       jsonPath: normalizeSlashes(jsonPath),
       csvPath: normalizeSlashes(csvPath),
       itemCount: items.length,
-      recordingHeadTrimEnabled: plan.recordingHeadTrimEnabled,
-      recordingHeadTrimMode: plan.recordingHeadTrimMode,
-      recordingHeadTrimMs: plan.recordingHeadTrimMs,
-      headTrimmedItemCount: headTrimmedItemCount,
-      headTrimTotalMs: headTrimTotalMs,
-      headTrimAutoCandidateCount: headTrimAutoCandidateCount,
       items: items,
       mixInfo: mixInfo
     };
@@ -3735,7 +3429,6 @@
     var ps1Path = modules.path.join(metadataDir, "run-split-mix-ffmpeg.ps1");
     var batPath = modules.path.join(metadataDir, "run-split-mix-ffmpeg.bat");
     var logPath = modules.path.join(metadataDir, "ffmpeg-split-log.txt");
-    var headTrimResultsPath = modules.path.join(metadataDir, "head-trim-results.json");
     var mixSource = planResult.mixInfo.absolutePath;
     var items = planResult.items;
 
@@ -3750,42 +3443,12 @@
     lines.push("$mixSource = " + psQuote(mixSource));
     lines.push("$outputDir = " + psQuote(outputDir));
     lines.push("$logPath = " + psQuote(logPath));
-    lines.push("$headTrimResultsPath = " + psQuote(headTrimResultsPath));
     lines.push("New-Item -ItemType Directory -Force -Path $outputDir | Out-Null");
     lines.push("Set-Content -LiteralPath $logPath -Encoding UTF8 -Value ('AU Dub Panel FFmpeg Mix Split Log - ' + (Get-Date -Format o))");
     lines.push("function AUWrite($msg) { Write-Host $msg; Add-Content -LiteralPath $logPath -Encoding UTF8 -Value $msg }");
     lines.push("function AUWarn($msg) { Write-Warning $msg; Add-Content -LiteralPath $logPath -Encoding UTF8 -Value ('WARNING: ' + $msg) }");
     // Sayilari her zaman nokta ondalikla yaz (TR yerelde virgul ffmpeg'i bozar).
     lines.push("function AUNum($n) { return ([double]$n).ToString('0.0#', [System.Globalization.CultureInfo]::InvariantCulture) }");
-    // Kisa tus darbelerini atlayip en az 120 ms suren sesi konusma baslangici sayar.
-    // Belirsiz veya asiri kirpma kararlarinda gecici cikti silinir ve kaynak aynen korunur.
-    lines.push("function AUAutoHeadTrim($file, $start, $duration, $output) {");
-    lines.push("  $result = @{ seconds = 0.0; outputDuration = [double]$duration; temp = ''; reason = 'speech_or_no_boundary' }");
-    lines.push("  $minUsefulTrim = " + AUTO_HEAD_TRIM_MIN_USEFUL_SECONDS);
-    lines.push("  $minRemainingAudio = " + AUTO_HEAD_TRIM_MIN_REMAINING_SECONDS);
-    lines.push("  $maxTrim = [math]::Min(" + AUTO_HEAD_TRIM_MAX_SECONDS + ", [math]::Max(0.0, [math]::Round(([double]$duration - $minRemainingAudio), 3)))");
-    lines.push("  if ($maxTrim -lt $minUsefulTrim) { $result.reason = 'clip_too_short'; return $result }");
-    lines.push("  $tmp = $output + '.autotrim.wav'");
-    lines.push("  if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }");
-    lines.push("  $filter = " + psQuote(AUTO_HEAD_TRIM_FILTER));
-    lines.push("  $txt = (& $ffmpeg -hide_banner -loglevel error -nostats -y -ss (AUNum $start) -t (AUNum $duration) -i $file -af $filter -c:a pcm_f32le -progress pipe:1 $tmp 2>&1) | Out-String");
-    lines.push("  $filterExit = $LASTEXITCODE");
-    lines.push("  if (($filterExit -ne 0) -or !(Test-Path -LiteralPath $tmp)) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue; $result.reason = 'analysis_failed'; return $result }");
-    lines.push("  $times = [regex]::Matches($txt, 'out_time_us=(\\d+)')");
-    lines.push("  if ($times.Count -eq 0) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue; $result.reason = 'duration_probe_failed'; return $result }");
-    lines.push("  $trimmedDuration = [double]$times[$times.Count - 1].Groups[1].Value / 1000000.0");
-    lines.push("  $candidate = [math]::Round(([double]$duration - $trimmedDuration), 3)");
-    lines.push("  if (($candidate -lt $minUsefulTrim) -or ($candidate -gt $maxTrim) -or ($trimmedDuration -lt $minRemainingAudio)) {");
-    lines.push("    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue");
-    lines.push("    if ($candidate -gt $maxTrim) { $result.reason = 'trim_limit_exceeded' }");
-    lines.push("    return $result");
-    lines.push("  }");
-    lines.push("  $result.seconds = $candidate");
-    lines.push("  $result.outputDuration = [math]::Round($trimmedDuration, 3)");
-    lines.push("  $result.temp = $tmp");
-    lines.push("  $result.reason = 'sustained_speech_boundary'");
-    lines.push("  return $result");
-    lines.push("}");
     // volumedetect ciktisindan ortalama (mean) ve tepe (max) dB okur; stderr yakalanir, konsola dokulmez.
     lines.push("function AUVolStats($file) {");
     lines.push("  $txt = (& $ffmpeg -hide_banner -nostats -i $file -af volumedetect -f null NUL 2>&1) | Out-String");
@@ -3800,40 +3463,16 @@
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
       var out = modules.path.join(outputDir, it.outputFileName);
-      lines.push("  @{ index = " + it.index + "; lineId = " + psQuote(it.lineId) + "; start = " + it.mixStart + "; duration = " + it.duration + "; autoTrim = " + (it.headTrimAutoEligible ? "$true" : "$false") + "; plannedTrimMs = " + Number(it.headTrimMsApplied || 0) + "; output = " + psQuote(out) + "; levelRef = " + psQuote(it.levelRefPath || "") + " }");
+      lines.push("  @{ index = " + it.index + "; lineId = " + psQuote(it.lineId) + "; start = " + it.mixStart + "; duration = " + it.duration + "; output = " + psQuote(out) + "; levelRef = " + psQuote(it.levelRefPath || "") + " }");
     }
     lines.push(")");
-    lines.push("$ok = 0; $failed = 0; $leveled = 0; $autoTrimmed = 0; $autoTrimTotalMs = 0");
-    lines.push("$trimResults = @()");
+    lines.push("$ok = 0; $failed = 0; $leveled = 0");
     lines.push("foreach ($item in $items) {");
     lines.push("  $actualStart = [double]$item.start");
     lines.push("  $actualDuration = [double]$item.duration");
-    lines.push("  $appliedTrimMs = [int]$item.plannedTrimMs");
-    lines.push("  $autoOutput = ''");
-    lines.push("  $trimReason = $(if ($item.autoTrim) { 'speech_or_no_boundary' } elseif ($appliedTrimMs -gt 0) { 'fixed' } else { 'disabled_or_ineligible' })");
-    lines.push("  if ($item.autoTrim) {");
-    lines.push("    $auto = AUAutoHeadTrim $mixSource $actualStart $actualDuration $item.output");
-    lines.push("    $trimReason = $auto.reason");
-    lines.push("    if ([double]$auto.seconds -gt 0) {");
-    lines.push("      $actualStart = [math]::Round($actualStart + [double]$auto.seconds, 3)");
-    lines.push("      $actualDuration = [double]$auto.outputDuration");
-    lines.push("      $autoOutput = [string]$auto.temp");
-    lines.push("      $appliedTrimMs = [int][math]::Round([double]$auto.seconds * 1000)");
-    lines.push("      $autoTrimmed++; $autoTrimTotalMs += $appliedTrimMs");
-    lines.push("      AUWrite (\"  otomatik tus sesi siniri: {0} ms kirpildi ({1})\" -f $appliedTrimMs, $item.lineId)");
-    lines.push("    } else {");
-    lines.push("      AUWrite (\"  otomatik kirpma yok: guvenli sessizlik siniri bulunamadi, konusma korundu ({0})\" -f $item.lineId)");
-    lines.push("    }");
-    lines.push("  }");
     lines.push("  AUWrite (\"Split [{0}/{1}] {2}: start={3}s dur={4}s -> {5}\" -f $item.index, $items.Count, $item.lineId, (AUNum $actualStart), (AUNum $actualDuration), $item.output)");
-    lines.push("  if ($autoOutput -and (Test-Path -LiteralPath $autoOutput)) {");
-    lines.push("    try { Move-Item -LiteralPath $autoOutput -Destination $item.output -Force -ErrorAction Stop; $splitExit = 0 }");
-    lines.push("    catch { AUWarn (\"Otomatik kirpilmis cikti tasinamadi: {0}\" -f $_.Exception.Message); $splitExit = 12 }");
-    lines.push("  } else {");
-    lines.push("    & $ffmpeg -hide_banner -loglevel error -nostats -y -ss (AUNum $actualStart) -t (AUNum $actualDuration) -i $mixSource -c:a pcm_f32le $item.output");
-    lines.push("    $splitExit = $LASTEXITCODE");
-    lines.push("  }");
-    lines.push("  $trimResults += [pscustomobject]@{ lineId = $item.lineId; appliedMs = $appliedTrimMs; outputDuration = $actualDuration; outputStart = $actualStart; reason = $trimReason }");
+    lines.push("  & $ffmpeg -hide_banner -loglevel error -nostats -y -ss (AUNum $actualStart) -t (AUNum $actualDuration) -i $mixSource -c:a pcm_f32le $item.output");
+    lines.push("  $splitExit = $LASTEXITCODE");
     lines.push("  if ($splitExit -eq 0) {");
     lines.push("    $ok++");
     // Duzey esitleme: parcanin ortalama dB'sini orijinalinkine cek (tepe -1 dBFS'i gecmesin).
@@ -3855,9 +3494,8 @@
     lines.push("    }");
     lines.push("  } else { AUWarn (\"FFmpeg split hata kodu {0}: {1}\" -f $splitExit, $item.lineId); $failed++ }");
     lines.push("}");
-    lines.push("ConvertTo-Json -InputObject @($trimResults) -Depth 4 | Set-Content -LiteralPath $headTrimResultsPath -Encoding UTF8");
     lines.push("AUWrite \"----------------------------------------\"");
-    lines.push("AUWrite (\"Split bitti. Basarili: {0} / Hatali: {1} / Duzeyi esitlenen: {2} / Otomatik kirpilan: {3} ({4} ms)\" -f $ok, $failed, $leveled, $autoTrimmed, $autoTrimTotalMs)");
+    lines.push("AUWrite (\"Split bitti. Basarili: {0} / Hatali: {1} / Duzeyi esitlenen: {2}\" -f $ok, $failed, $leveled)");
     lines.push("AUWrite (\"Log: {0}\" -f $logPath)");
     lines.push("if ($failed -gt 0) { exit 2 }");
     lines.push("exit 0");
@@ -3878,17 +3516,10 @@
       ps1Path: normalizeSlashes(ps1Path),
       batPath: normalizeSlashes(batPath),
       logPath: normalizeSlashes(logPath),
-      headTrimResultsPath: normalizeSlashes(headTrimResultsPath),
       outputDir: normalizeSlashes(outputDir),
       planPath: planResult.jsonPath,
       createdAt: new Date().toISOString(),
       itemCount: items.length,
-      recordingHeadTrimEnabled: planResult.recordingHeadTrimEnabled,
-      recordingHeadTrimMode: planResult.recordingHeadTrimMode,
-      recordingHeadTrimMs: planResult.recordingHeadTrimMs,
-      headTrimmedItemCount: planResult.headTrimmedItemCount,
-      headTrimTotalMs: planResult.headTrimTotalMs,
-      headTrimAutoCandidateCount: planResult.headTrimAutoCandidateCount,
       levelMatchCount: levelMatchCount
     };
     project.updatedAt = new Date().toISOString();
@@ -3897,16 +3528,9 @@
       ps1Path: normalizeSlashes(ps1Path),
       batPath: normalizeSlashes(batPath),
       logPath: normalizeSlashes(logPath),
-      headTrimResultsPath: normalizeSlashes(headTrimResultsPath),
       outputDir: normalizeSlashes(outputDir),
       planPath: planResult.jsonPath,
       itemCount: items.length,
-      recordingHeadTrimEnabled: planResult.recordingHeadTrimEnabled,
-      recordingHeadTrimMode: planResult.recordingHeadTrimMode,
-      recordingHeadTrimMs: planResult.recordingHeadTrimMs,
-      headTrimmedItemCount: planResult.headTrimmedItemCount,
-      headTrimTotalMs: planResult.headTrimTotalMs,
-      headTrimAutoCandidateCount: planResult.headTrimAutoCandidateCount,
       levelMatchCount: levelMatchCount
     };
   }
@@ -3949,20 +3573,6 @@
     return null;
   }
 
-  function readHeadTrimResults(project, modules) {
-    var resultPath = project && project.lastMixSplitScript && project.lastMixSplitScript.headTrimResultsPath;
-    if (!resultPath || !modules.fs.existsSync(resultPath)) return {};
-    try {
-      var parsed = JSON.parse(modules.fs.readFileSync(resultPath, "utf8").replace(/^\uFEFF/, ""));
-      var rows = Array.isArray(parsed) ? parsed : [parsed];
-      var byLineId = {};
-      for (var i = 0; i < rows.length; i++) if (rows[i] && rows[i].lineId) byLineId[rows[i].lineId] = rows[i];
-      return byLineId;
-    } catch (e) {
-      return {};
-    }
-  }
-
   function verifyMixSplitOutputs(project, attachAsTakes) {
     var modules = getNodeModules();
     if (!modules) throw new Error("Node.js dosya okuma erişimi yok. Mix split doğrulama için CEP içinde Node açık olmalı.");
@@ -3976,20 +3586,10 @@
     var present = 0, missing = 0, empty = 0, attachedTakes = 0;
     var problemFiles = [];
     var splitId = project.lastMixSplitPlan.createdAt || project.lastMixSplitPlan.jsonPath || uid("split");
-    var headTrimResults = readHeadTrimResults(project, modules);
-    var actualHeadTrimmedItemCount = 0;
-    var actualHeadTrimTotalMs = 0;
 
     for (var i = 0; i < project.lastMixSplitPlan.items.length; i++) {
       var it = project.lastMixSplitPlan.items[i];
-      var trimResult = headTrimResults[it.lineId] || null;
-      var actualDuration = trimResult && typeof trimResult.outputDuration === "number" ? trimResult.outputDuration : it.duration;
-      var actualHeadTrimMs = trimResult && typeof trimResult.appliedMs === "number" ? trimResult.appliedMs : Number(it.headTrimMsApplied || 0);
-      if (actualHeadTrimMs > 0) actualHeadTrimmedItemCount++;
-      actualHeadTrimTotalMs += actualHeadTrimMs;
-      it.actualOutputDuration = actualDuration;
-      it.actualHeadTrimMsApplied = actualHeadTrimMs;
-      if (trimResult && trimResult.reason) it.actualHeadTrimReason = trimResult.reason;
+      var actualDuration = it.duration;
       var outPath = modules.path.join(project.projectRootPath, it.outputRelativePath);
       var exists = false, size = 0;
       try { exists = modules.fs.existsSync(outPath); if (exists) size = modules.fs.statSync(outPath).size; } catch (e) { exists = false; }
@@ -4041,8 +3641,6 @@
         mixStart: it.mixStart,
         mixEnd: it.mixEnd,
         duration: actualDuration,
-        headTrimMsApplied: actualHeadTrimMs,
-        headTrimReason: trimResult && trimResult.reason ? trimResult.reason : "",
         outputFileName: it.outputFileName,
         outputPath: normalizeSlashes(outPath),
         exists: exists,
@@ -4051,11 +3649,11 @@
       });
     }
 
-    var csvHeaders = ["index","lineId","originalName","mixStart","mixEnd","duration","headTrimMsApplied","headTrimReason","outputFileName","exists","sizeBytes","status","outputPath"];
+    var csvHeaders = ["index","lineId","originalName","mixStart","mixEnd","duration","outputFileName","exists","sizeBytes","status","outputPath"];
     var rows = [csvHeaders.join(",")];
     for (var r = 0; r < details.length; r++) {
       var d = details[r];
-      rows.push([d.index, d.lineId, d.originalName, d.mixStart, d.mixEnd, d.duration, d.headTrimMsApplied, d.headTrimReason, d.outputFileName, d.exists, d.sizeBytes, d.status, d.outputPath].map(csvEscape).join(","));
+      rows.push([d.index, d.lineId, d.originalName, d.mixStart, d.mixEnd, d.duration, d.outputFileName, d.exists, d.sizeBytes, d.status, d.outputPath].map(csvEscape).join(","));
     }
     var report = {
       schemaVersion: 1,
@@ -4069,8 +3667,6 @@
       missing: missing,
       empty: empty,
       attachedTakes: attachedTakes,
-      headTrimmedItemCount: actualHeadTrimmedItemCount,
-      headTrimTotalMs: actualHeadTrimTotalMs,
       ok: missing === 0 && empty === 0,
       details: details
     };
@@ -4087,12 +3683,8 @@
       missing: missing,
       empty: empty,
       attachedTakes: attachedTakes,
-      headTrimmedItemCount: actualHeadTrimmedItemCount,
-      headTrimTotalMs: actualHeadTrimTotalMs,
       ok: report.ok
     };
-    project.lastMixSplitPlan.headTrimmedItemCount = actualHeadTrimmedItemCount;
-    project.lastMixSplitPlan.headTrimTotalMs = actualHeadTrimTotalMs;
     project.updatedAt = new Date().toISOString();
     saveProject(project);
     return {
@@ -4102,8 +3694,6 @@
       missing: missing,
       empty: empty,
       attachedTakes: attachedTakes,
-      headTrimmedItemCount: actualHeadTrimmedItemCount,
-      headTrimTotalMs: actualHeadTrimTotalMs,
       csvPath: normalizeSlashes(csvPath),
       jsonPath: normalizeSlashes(jsonPath),
       problemFiles: problemFiles
@@ -4723,20 +4313,6 @@
     if (!project || !project.lines || !project.lines.length) throw new Error("Önce proje oluştur veya yükle.");
     var modules = getNodeModules();
     var mode = (options && options.mode) || "position";
-    var requestedHeadTrimMs = options && Object.prototype.hasOwnProperty.call(options, "headTrimMs")
-      ? options.headTrimMs
-      : project.recordingHeadTrimMs;
-    var requestedHeadTrimEnabled = options && Object.prototype.hasOwnProperty.call(options, "headTrimEnabled")
-      ? options.headTrimEnabled
-      : project.recordingHeadTrimEnabled;
-    var requestedHeadTrimMode = options && Object.prototype.hasOwnProperty.call(options, "headTrimMode")
-      ? options.headTrimMode
-      : project.recordingHeadTrimMode;
-    normalizeRecordingHeadTrimSettings(project, {
-      recordingHeadTrimEnabled: requestedHeadTrimEnabled,
-      recordingHeadTrimMode: requestedHeadTrimMode,
-      recordingHeadTrimMs: requestedHeadTrimMs
-    });
     var clips = [];
     for (var k = 0; k < (liveClips || []).length; k++) {
       var lc = liveClips[k];
@@ -4822,9 +4398,6 @@
       unmatched: project.lines.length - attached,
       extraClips: Math.max(0, clips.length - attached),
       mode: mode,
-      headTrimEnabled: project.recordingHeadTrimEnabled,
-      headTrimMode: project.recordingHeadTrimMode,
-      headTrimMs: project.recordingHeadTrimMs,
       warnings: warnings
     };
   }

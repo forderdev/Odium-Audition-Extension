@@ -51,7 +51,4 @@ test("loadProjectFromPath rebases a relocated package to the selected project.js
   assert.equal(normalize(loaded.projectRootPath), normalize(packageRoot));
   assert.equal(normalize(loaded.packageRootPath), normalize(packageRoot));
   assert.equal(normalize(loaded.loadedFromPath), normalize(projectPath));
-  assert.equal(loaded.recordingHeadTrimEnabled, true);
-  assert.equal(loaded.recordingHeadTrimMode, "auto");
-  assert.equal(loaded.recordingHeadTrimMs, 250);
 });

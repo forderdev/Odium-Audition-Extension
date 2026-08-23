@@ -117,7 +117,14 @@ Not: `PlayerDebugMode` değeri **string ("1")** olmalı (DWORD değil). Doğru C
 5. `Ayrılanları Doğrula ve Take Yap` butonuna basın.
 6. Sonrasında normal `Export Plan Kaydet → FFmpeg Export Çalıştır → Export Sonucu Doğrula` akışını çalıştırın.
 
-## v1.13.0
+## v1.4
+
+- `Baslangic tus sesi korumasi` ozelligi tamamen kaldirildi: UI kontrolleri, proje ayarlari, paketlemedeki sessize alma ve mix bolmedeki otomatik/sabit kirpma mantigi silindi.
+- Mix bolme her repligi kaydin gercek `mixStart`/`mixEnd` sinirlarindan keser; hicbir ses baslangici kirpilmaz.
+- Eski project.json dosyalarindaki `recordingHeadTrim*` alanlari yok sayilir; ek islem gerekmez.
+- Mix sonrasi orijinal duzeye esitleme aynen calismaya devam eder.
+
+## v1.3
 
 - Kaynak session eski bir `_AU_Dub_Package_` klasorunun icindeyken `Imported Files` ve `Recorded Files` artik yanlislikla atlanmaz.
 - Temizlenen canli take ile session medya kopyasi farkli klasorlerde olsa bile klip adiyla eslestirilir.

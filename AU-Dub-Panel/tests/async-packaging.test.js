@@ -119,7 +119,6 @@ test("packageProjectAsync keeps session media when the source session is inside 
     projectId: "nested_package_media_test",
     projectName: "Nested_Package_Media_Test",
     projectRootPath: projectRoot,
-    recordingHeadTrimEnabled: false,
     lines: [{
       lineId: "line_0001",
       originalName: "original.wav",
@@ -341,103 +340,4 @@ test("packageProjectAsync packages and levels live recordings outside the sessio
     processArgs.some((args) => args.some((arg) => String(arg).startsWith("volume=")) && args[args.indexOf("-i") + 1] === recordingPath),
     "gain should be applied to the packaged Audio/Takes file"
   );
-});
-
-test("packageProjectAsync silences detected keyboard lead-ins in takes and session media", async (t) => {
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "audub-sanitize-package-"));
-  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
-
-  const projectRoot = path.join(fixtureRoot, "project");
-  const sessionRoot = path.join(fixtureRoot, "session");
-  const importedRoot = path.join(sessionRoot, "Imported Files");
-  const captureRoot = path.join(fixtureRoot, "live-captures");
-  fs.mkdirSync(projectRoot, { recursive: true });
-  fs.mkdirSync(importedRoot, { recursive: true });
-  fs.mkdirSync(captureRoot, { recursive: true });
-
-  const originalPath = path.join(projectRoot, "original.wav");
-  const sessionPath = path.join(sessionRoot, "session.sesx");
-  const recordingPath = path.join(importedRoot, "recording.wav");
-  const liveRecordingPath = path.join(captureRoot, "recording.wav");
-  fs.writeFileSync(originalPath, "original-audio");
-  fs.writeFileSync(sessionPath, "<session><files><file absolutePath=\"C:\\raw\\recording.wav\" relativePath=\"Imported Files/recording.wav\"/></files></session>");
-  fs.writeFileSync(recordingPath, "raw-keyboard-and-speech");
-  fs.writeFileSync(liveRecordingPath, "raw-keyboard-and-speech");
-
-  const project = {
-    projectId: "project_sanitize_test",
-    projectName: "Sanitize_Test",
-    projectRootPath: projectRoot,
-    recordingHeadTrimEnabled: true,
-    recordingHeadTrimMode: "auto",
-    recordingHeadTrimMs: 250,
-    lines: [{
-      lineId: "line_0001",
-      originalName: "original.wav",
-      originalAbsolutePath: originalPath,
-      originalDuration: 2,
-      exportName: "original.wav",
-      selectedTakeId: "take_1",
-      takes: [{
-        takeId: "take_1",
-        fileName: "recording.wav",
-        originalTakeName: "recording.wav",
-        liveFilePath: liveRecordingPath,
-        sourceKind: "live_recording",
-        duration: 2,
-        mixStart: 10,
-        mixEnd: 12,
-        isSelected: true
-      }]
-    }]
-  };
-
-  const processArgs = [];
-  function runProcess(_executable, args, callback) {
-    processArgs.push(Array.from(args));
-    setTimeout(() => {
-      if (args[0] === "-version") {
-        callback(null, { status: 0, stdout: "ffmpeg test", stderr: "" });
-        return;
-      }
-      const destination = args[args.length - 1];
-      const filterIndex = args.indexOf("-af");
-      const filter = filterIndex >= 0 ? String(args[filterIndex + 1]) : "";
-      if (filter.includes("silenceremove=")) {
-        fs.writeFileSync(destination, "trim-analysis");
-        callback(null, { status: 0, stdout: "out_time_us=1200000\nprogress=end\n", stderr: "" });
-        return;
-      }
-      if (filter.includes("afade=t=in:st=0.8:d=0.01")) {
-        fs.writeFileSync(destination, "sanitized-recording");
-        callback(null, { status: 0, stdout: "", stderr: "" });
-        return;
-      }
-      callback(null, { status: 1, stdout: "", stderr: "unexpected process" });
-    }, 5);
-  }
-
-  const result = await loadProjectStore().packageProjectAsync(project, {
-    sesxPath: sessionPath,
-    includeSessionMedia: true,
-    levelMatchOriginal: false,
-    ffmpegPath: "fake-ffmpeg",
-    runProcess
-  });
-
-  const packagedProject = JSON.parse(fs.readFileSync(result.jsonPath, "utf8"));
-  const packagedTake = packagedProject.lines[0].takes[0];
-  const packagedTakePath = path.join(result.packageRoot, ...packagedTake.fileRelativePath.split("/"));
-  const packagedSessionMedia = path.join(result.packageRoot, "Imported Files", "recording.wav");
-
-  assert.equal(result.headTrim.sanitizedTakes, 1);
-  assert.equal(result.headTrim.sanitizedSessionFiles, 1);
-  assert.equal(packagedTake.headTrimSanitizedMs, 800);
-  assert.equal(packagedTake.headTrimSanitizedMode, "auto");
-  assert.equal(fs.readFileSync(packagedTakePath, "utf8"), "sanitized-recording");
-  assert.equal(fs.readFileSync(packagedSessionMedia, "utf8"), "sanitized-recording");
-  assert.ok(processArgs.some((args) => args.some((arg) => String(arg).includes("afade=t=in:st=0.8:d=0.01"))));
-  const packagedSesx = fs.readFileSync(result.sesxCopied, "utf8");
-  assert.doesNotMatch(packagedSesx, /C:\\raw\\recording\.wav/);
-  assert.match(packagedSesx.replace(/\\/g, "/"), new RegExp(result.packageRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\\/g, "/") + "/Imported Files/recording\\.wav"));
 });
